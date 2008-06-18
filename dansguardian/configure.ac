@@ -23,10 +23,19 @@ AC_CACHE_SAVE
 
 # Checks for header files.
 AC_CHECK_HEADERS([arpa/inet.h fcntl.h limits.h netdb.h netinet/in.h stdlib.h])
-AC_CHECK_HEADERS([string.h sys/socket.h sys/time.h syslog.h unistd.h locale.h])
+AC_CHECK_HEADERS([string.h sys/socket.h sys/time.h unistd.h locale.h])
 AC_CHECK_HEADERS([sys/types.h sys/un.h sys/poll.h sys/resource.h])
 AC_CHECK_HEADERS([pwd.h grp.h])
 AC_CHECK_HEADERS([byteswap.h])
+AC_CHECK_HEADER(
+		[syslog.h],
+		[
+			AC_DEFINE([HAVE_SYSLOG_H], [1], [Define to 1 if you have <syslog.h>])
+			syslog=true
+		],
+		[ syslog=false ]
+)
+AM_CONDITIONAL(HAVE_SYSLOG_H, test "x$syslog" = "xtrue")
 
 # Check system endianness
 AC_C_BIGENDIAN

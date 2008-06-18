@@ -34,10 +34,14 @@
 #include <sys/time.h>
 #include <unistd.h>
 #include <cerrno>
-#include <sys/socket.h>
 #include <string.h>
 #include <algorithm>
+
+#ifndef WIN32
 #include <sys/select.h>
+#else
+#include <winsock2.h>
+#endif
 
 #ifdef DGDEBUG
 #include <iostream>

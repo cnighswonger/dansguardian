@@ -31,7 +31,12 @@
 #include <unistd.h>
 #include <stdexcept>
 #include <syslog.h>
+
+#ifndef WIN32
 #include <sys/select.h>
+#else
+#include <winsock2.h>
+#endif
 
 #ifdef DGDEBUG
 #include <iostream>

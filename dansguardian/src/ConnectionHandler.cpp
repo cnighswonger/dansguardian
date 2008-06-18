@@ -30,18 +30,26 @@
 #include "ImageContainer.hpp"
 #include "FDFuncs.hpp"
 
+#ifndef HAVE_SYSLOG_H
+#include "syslog-repl.hpp"
+#else
 #include <syslog.h>
+#endif
+
 #include <cerrno>
 #include <cstdio>
 #include <ctime>
 #include <algorithm>
-#include <netdb.h>
 #include <cstdlib>
 #include <unistd.h>
 #include <sys/time.h>
 #include <fcntl.h>
 #include <sys/stat.h>
 #include <istream>
+
+#ifdef WIN32
+#define SHUT_WR SD_SEND
+#endif
 
 
 // GLOBALS

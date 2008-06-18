@@ -24,12 +24,18 @@
 // INCLUDES
 
 #include <string>
+#include <exception>
+
+#ifndef WIN32
 #include <sys/types.h>
 #include <sys/socket.h>
 #include <sys/un.h>
-#include <exception>
 #include <netinet/in.h>
 #include <arpa/inet.h>
+#else
+#include <winsock2.h>
+typedef int socklen_t;
+#endif
 
 int selectEINTR(int numfds, fd_set * readfds, fd_set * writefds, fd_set * exceptfds, struct timeval *timeout, bool honour_reloadconfig = false);
 

@@ -70,6 +70,12 @@ else
 NTLMAUTH_SOURCE =
 endif
 
+if HAVE_SYSLOG_H
+SYSLOG_SOURCE =
+else
+SYSLOG_SOURCE = syslog-repl.cpp
+endif
+
 sbin_PROGRAMS = dansguardian 
 
 dansguardian_CXXFLAGS = $(PCRE_CFLAGS) $(AM_CXXFLAGS)
@@ -81,7 +87,8 @@ dansguardian_CPPFLAGS = -D__CONFFILE='"$(DGCONFFILE)"' \
 			-D__PROXYGROUP='"$(DGPROXYGROUP)"' \
 			-D__CONFDIR='"$(DGCONFDIR)"' \
 			$(AM_CPPFLAGS)
-dansguardian_SOURCES = String.cpp \
+dansguardian_SOURCES = $(SYSLOG_SOURCE) \
+                       String.cpp \
                        FDTunnel.cpp \
                        ConnectionHandler.cpp \
                        DataBuffer.cpp \
