@@ -1,2 +1,2 @@
 #! /bin/sh
-aclocal && aclocal && autoheader && automake --add-missing --copy && autoconf
+aclocal -I acinclude && autoheader && automake --add-missing --copy && autoconf

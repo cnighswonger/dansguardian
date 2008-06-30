@@ -167,7 +167,7 @@ std::string ConnectionHandler::miniURLEncode(const char *s)
 {
 	std::string encoded;
 	//char *buf = new char[16];  // way longer than needed
-	char *buf = new char[3];
+	char buf[3];
 	unsigned char c;
 	for (int i = 0; i < (signed) strlen(s); i++) {
 		c = s[i];
@@ -181,7 +181,6 @@ std::string ConnectionHandler::miniURLEncode(const char *s)
 		encoded += "%";
 		encoded += buf;
 	}
-	delete[]buf;
 	return encoded;
 }
 
@@ -290,7 +289,7 @@ off_t ConnectionHandler::sendFile(Socket * peerconn, String & filename, String &
 	// perform the actual sending
 	off_t sent = 0;
 	int rc;
-	char *buffer = new char[250000];
+	char buffer[250000];
 	while (sent < filesize) {
 		rc = readEINTR(fd, buffer, 250000);
 #ifdef DGDEBUG
@@ -300,7 +299,6 @@ off_t ConnectionHandler::sendFile(Socket * peerconn, String & filename, String &
 #ifdef DGDEBUG
 			std::cout << "error reading send file so throwing exception" << std::endl;
 #endif
-			delete[]buffer;
 			throw std::exception();
 		}
 		if (rc == 0) {
@@ -311,7 +309,6 @@ off_t ConnectionHandler::sendFile(Socket * peerconn, String & filename, String &
 		}
 		// as it's cached to disk the buffer must be reasonably big
 		if (!peerconn->writeToSocket(buffer, rc, 0, 100)) {
-			delete[]buffer;
 			throw std::exception();
 		}
 		sent += rc;
@@ -319,7 +316,6 @@ off_t ConnectionHandler::sendFile(Socket * peerconn, String & filename, String &
 		std::cout << "total sent from temp:" << sent << std::endl;
 #endif
 	}
-	delete[]buffer;
 	close(fd);
 	return sent;
 }

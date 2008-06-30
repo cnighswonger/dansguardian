@@ -92,7 +92,7 @@ AC_TYPE_UID_T
 AC_FUNC_FORK
 AC_CHECK_FUNCS([dup2 gettimeofday memset select])
 AC_CHECK_FUNCS([strerror strstr strtol])
-AC_CHECK_FUNCS([setuid setgid umask seteuid setreuid setlocale])
+AC_CHECK_FUNCS([setuid setgid umask seteuid setlocale])
 AC_SEARCH_LIBS([floor], [m])
 AC_SEARCH_LIBS([gethostbyname], [nsl])
 AC_SEARCH_LIBS([socket], [socket], [], [
@@ -107,9 +107,12 @@ AC_CACHE_SAVE
 
 AC_MSG_CHECKING(for backside with both hands)
 AC_MSG_RESULT(no)
-AC_MSG_CHECKING(build os)
-AC_CANONICAL_BUILD
-AC_MSG_RESULT($build_os)
+AC_MSG_CHECKING(host os)
+AC_CANONICAL_HOST
+AC_MSG_RESULT($host_os)
+
+# Check for POSIX threads
+ACX_PTHREAD
 
 AC_MSG_CHECKING(for debug option)
 AC_ARG_WITH(dgdebug,
@@ -215,7 +218,7 @@ if test "x$pcre" = "xtrue"; then
 	PKG_PROG_PKG_CONFIG
 	PKG_CHECK_MODULES([PCRE],[libpcre >= 6.0])
 	AC_DEFINE([HAVE_PCRE],[],[Define to enable PCRE support])
-
+	PCRE_LIBS="-lpcreposix ${PCRE_LIBS}"
 else
 	AC_CHECK_FUNCS([regcomp])
 fi

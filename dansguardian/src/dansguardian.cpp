@@ -333,12 +333,8 @@ int main(int argc, char *argv[])
 			std::cerr << "Unable to setgid()" << std::endl;
 			return 1;  // setgid failed for some reason so exit with error
 		}
-#ifdef HAVE_SETREUID
-		rc = setreuid((uid_t) - 1, st->pw_uid);
-#else
 		rc = seteuid(o.proxy_user);  // need to be euid so can su back
 		// (yes it negates but no choice)
-#endif
 		if (rc == -1) {
 			syslog(LOG_ERR, "Unable to seteuid()");
 			std::cerr << "Unable to seteuid()" << std::endl;
@@ -397,11 +393,7 @@ int main(int argc, char *argv[])
 			// In order to re-read the conf files and create cache files
 			// we need to become root user again
 
-#ifdef HAVE_SETREUID
-			rc = setreuid((uid_t) - 1, rootuid);
-#else
 			rc = seteuid(rootuid);
-#endif
 			if (rc == -1) {
 				syslog(LOG_ERR, "%s", "Unable to seteuid() to read conf files.");
 #ifdef DGDEBUG
@@ -433,11 +425,7 @@ int main(int argc, char *argv[])
 			while (waitpid(-1, NULL, WNOHANG) > 0) {
 			}	// mop up defunts
 
-#ifdef HAVE_SETREUID
-			rc = setreuid((uid_t) - 1, st->pw_uid);
-#else
 			rc = seteuid(st->pw_uid);  // become low priv again
-#endif
 
 			if (rc == -1) {
 				syslog(LOG_ERR, "%s", "Unable to re-seteuid()");
