@@ -65,7 +65,6 @@
 // the values can get altered by outside influences, this is useful.
 static volatile bool ttg = false;
 static volatile bool gentlereload = false;
-static volatile bool sig_term_killall = false;
 volatile bool reloadconfig = false;
 
 extern OptionContainer o;
@@ -77,15 +76,24 @@ int failurecount;
 int numchildren;
 int serversocketcount;
 SocketArray serversockets;  // the sockets we will listen on for connections
-UDSocket loggersock;  // the unix domain socket to be used for ipc with the forked children
-UDSocket urllistsock;
-UDSocket iplistsock;
 
 // Condition & mutex for accepting new client connections in child threads
-pthread_cond_t connevent;
-pthread_mutex_t connmutex;
+extern pthread_cond_t connevent;
+extern pthread_mutex_t connmutex;
 // Queue of server socket IDs which have pending client connections
 std::queue<int> connqueue;
+
+// Similar for logger
+extern pthread_cond_t logevent;
+extern pthread_mutex_t logmutex;
+std::queue<logentry*> logqueue;
+
+// Mutexes for accessing the URL and client IP caches
+extern pthread_mutex_t urlcachemutex;
+extern pthread_mutex_t ipcachemutex;
+
+DynamicIPList *ipcache = NULL;
+DynamicURLList urlcache;
 
 
 // DECLARATIONS
@@ -95,20 +103,12 @@ extern "C"
 {
 	void sig_chld(int signo);
 	void sig_term(int signo);  // This is so we can kill our children
-	void sig_termsafe(int signo);  // This is so we can kill our children safer
 	void sig_hup(int signo);  // This is so we know if we should re-read our config.
 	void sig_usr1(int signo);  // This is so we know if we should re-read our config but not kill current connections
-	void sig_childterm(int signo);
 #ifdef ENABLE_SEGV_BACKTRACE
-	void sig_segv(int signo/*, siginfo_t* info, void* p*/); // Generate a backtrace on segfault
+	void sig_segv(int signo); // Generate a backtrace on segfault
 #endif
 }
-
-// logging & URL cache processes
-int log_listener(std::string log_location, bool logconerror, bool logsyslog);
-int url_list_listener(bool logconerror);
-// send flush message over URL cache IPC socket
-void flush_urlcache();
 
 // fork off into background
 bool daemonise();
@@ -146,11 +146,6 @@ extern "C"
 	// we have to have a lump of c
 	void sig_term(int signo)
 	{
-		sig_term_killall = true;
-		ttg = true;  // its time to go
-	}
-	void sig_termsafe(int signo)
-	{
 		ttg = true;  // its time to go
 	}
 	void sig_hup(int signo)
@@ -166,13 +161,6 @@ extern "C"
 #ifdef DGDEBUG
 		std::cout << "USR1 received." << std::endl;
 #endif
-	}
-	void sig_childterm(int signo)
-	{
-#ifdef DGDEBUG
-		std::cout << "TERM recieved." << std::endl;
-#endif
-		_exit(0);
 	}
 #ifdef ENABLE_SEGV_BACKTRACE
 	void sig_segv(int signo)
@@ -225,38 +213,6 @@ bool fc_testproxy(std::string proxyip, int proxyport, bool report)
 	}
 	sock.close();
 	return true;  // it worked!
-}
-
-// signal the URL cache to flush via IPC
-void flush_urlcache()
-{
-	if (o.url_cache_number < 1) {
-		return;  // no cache running to flush
-	}
-	UDSocket fipcsock;
-	if (fipcsock.getFD() < 0) {
-		syslog(LOG_ERR, "%s", "Error creating ipc socket to url cache for flush");
-		return;
-	}
-	if (fipcsock.connect((char *) o.urlipc_filename.c_str()) < 0) {	// conn to dedicated url cach proc
-		syslog(LOG_ERR, "%s", "Error connecting via ipc to url cache for flush");
-#ifdef DGDEBUG
-		std::cout << "Error connecting via ipc to url cache for flush" << std::endl;
-#endif
-		return;
-	}
-	String request("f\n");
-	try {
-		fipcsock.writeString(request.toCharArray());  // throws on err
-	}
-	catch(std::exception & e) {
-#ifdef DGDEBUG
-		std::cerr << "Exception flushing url cache" << std::endl;
-		std::cerr << e.what() << std::endl;
-#endif
-		syslog(LOG_ERR, "%s", "Exception flushing url cache");
-		syslog(LOG_ERR, "%s", e.what());
-	}
 }
 
 // Fork ourselves off into the background
@@ -326,13 +282,12 @@ int prefork(int num)
 
 		int rc = pthread_create(&child_threadid, NULL, &handle_connections, NULL);
 
-		if (rc != 0) {	// fork failed, for example, if the
-			// process is not allowed to create
-			// any more
-			syslog(LOG_ERR, "%s", "Unable to pthread_create() any more.");
+		if (rc != 0) {
+			char errstr[1024];
+			syslog(LOG_ERR, "Unable to pthread_create() any more: %s", strerror_r(rc, errstr, 1024));
 #ifdef DGDEBUG
 			std::cout << "Unable to pthread_create() any more." << std::endl;
-			std::cout << strerror(rc) << std::endl;
+			std::cout << errstr << std::endl;
 			std::cout << "numchildren:" << numchildren << std::endl;
 #endif
 			failurecount++;  // log the error/failure
@@ -375,18 +330,18 @@ void* handle_connections(void *arg)
 	tidyup_forchild();
 
 	// stay alive both for the maximum allowed age of child processes, and whilst we aren't supposed to be re-reading configuration
-	while (!reloadconfig) {
+	while (!reloadconfig && !ttg) {
 		// XXX Need a cancellation handler which will unlock this mutex
 		pthread_mutex_lock(&connmutex);
-		if (reloadconfig)
+		if (reloadconfig || ttg)
 			break;
 		while (connqueue.empty())
 		{
 			pthread_cond_wait(&connevent, &connmutex);
-			if (reloadconfig)
+			if (reloadconfig || ttg)
 				break;
 		}
-		if (reloadconfig)
+		if (reloadconfig || ttg)
 		{
 			pthread_mutex_unlock(&connmutex);
 			break;
@@ -439,12 +394,12 @@ void mopup_afterkids()
 	}
 }
 
-// get a free slot in out PID list, if there is one - return -1 if not
+// get a free slot in our thread ID list, if there is one - return -1 if not
 int getchildslot()
 {
 	int i;
 	for (i = 0; i < o.max_children; i++) {
-		if (childrenids[i] == -1) {
+		if (childrenstates[i] < 0) {
 			return i;
 		}
 	}
@@ -480,7 +435,7 @@ void cullchildren(int num)
 	}
 }
 
-// send SIGTERM to all child processes
+// cancel all child threads
 void kill_allchildren()
 {
 #ifdef DGDEBUG
@@ -495,7 +450,7 @@ void kill_allchildren()
 	}
 }
 
-// send SIGHUP to all child processes
+// send SIGHUP to all child threads
 void hup_allchildren()
 {
 #ifdef DGDEBUG
@@ -513,8 +468,7 @@ void deletechild(pthread_t child_id)
 {
 	int i;
 	for (i = 0; i < o.max_children; i++) {
-		if (childrenids[i] == child_id) {
-			childrenids[i] = -1;
+		if (childrenids[i] == child_id && childrenstates[i] >= 0) {
 			if (childrenstates[i] != -2) {	// -2 is when its been culled
 				numchildren--;  // so no need to duplicater
 			}
@@ -537,18 +491,15 @@ void deletechild(pthread_t child_id)
 
 // *
 // *
-// * logger, IP list and URL cache main loops
+// * logger and IP stats thread main loops
 // *
 // *
 
-
-int log_listener(std::string log_location, bool logconerror, bool logsyslog)
+void *logger_loop(void *arg)
 {
 #ifdef DGDEBUG
-	std::cout << "log listener started" << std::endl;
+	std::cout << "log thread started" << std::endl;
 #endif
-	UDSocket* ipcpeersock;  // the socket which will contain the ipc connection
-	int rc, ipcsockfd;
 
 #ifdef ENABLE_EMAIL
 	// Email notification patch by J. Gauthier
@@ -559,842 +510,440 @@ int log_listener(std::string log_location, bool logconerror, bool logsyslog)
 	int curv_tmp, stamp_tmp, byuser;
 #endif
 	
-	//String where, what, how;
-	std::string cr("\n");
-   
-	std::string where, what, how, cat, clienthost, from, who, mimetype, useragent, ssize, sweight;
-	int port = 80, isnaughty = 0, isexception = 0, code = 200;
-	int cachehit = 0, wasinfected = 0, wasscanned = 0, filtergroup = 0;
-	long tv_sec = 0, tv_usec = 0;
-	int contentmodified = 0, urlmodified = 0, headermodified = 0;
-
 	std::ofstream* logfile = NULL;
-	if (!logsyslog) {
-		logfile = new std::ofstream(log_location.c_str(), std::ios::app);
+	if (!o.log_syslog) {
+		logfile = new std::ofstream(o.log_location.c_str(), std::ios::app);
 		if (logfile->fail()) {
 			syslog(LOG_ERR, "Error opening/creating log file.");
 #ifdef DGDEBUG
-			std::cout << "Error opening/creating log file: " << log_location << std::endl;
+			std::cout << "Error opening/creating log file: " << o.log_location << std::endl;
 #endif
 			delete logfile;
-			return 1;  // return with error
+			// Turn off logging so in-memory queue doesn't
+			// just become more and more full and never cleared
+			o.ll = 0;
+			return NULL;
 		}
 	}
 
-	ipcsockfd = loggersock.getFD();
-
-	fd_set fdSet;  // our set of fds (only 1) that select monitors for us
-	fd_set fdcpy;  // select modifies the set so we need to use a copy
-	FD_ZERO(&fdSet);  // clear the set
-	FD_SET(ipcsockfd, &fdSet);  // add ipcsock to the set
-	while (true) {		// loop, essentially, for ever
-		fdcpy = fdSet;  // take a copy
-		rc = select(ipcsockfd + 1, &fdcpy, NULL, NULL, NULL);  // block
-
-		// until something happens
-		if (rc < 0) {	// was an error
-			if (errno == EINTR) {
-				continue;  // was interupted by a signal so restart
-			}
-			if (logconerror) {
-				syslog(LOG_ERR, "ipc rc<0. (Ignorable)");
-			}
-			continue;
-		}
-		if (rc < 1) {
-			if (logconerror) {
-				syslog(LOG_ERR, "ipc rc<1. (Ignorable)");
-			}
-			continue;
-		}
-		if (FD_ISSET(ipcsockfd, &fdcpy)) {
-#ifdef DGDEBUG
-			std::cout << "received a log request" << std::endl;
-#endif
-			ipcpeersock = loggersock.accept();
-			if (ipcpeersock->getFD() < 0) {
-				delete ipcpeersock;
-				if (logconerror) {
-					syslog(LOG_ERR, "Error accepting ipc. (Ignorable)");
-				}
-				continue;  // if the fd of the new socket < 0 there was error
-				// but we ignore it as its not a problem
-			}
-
-			// Formatting code migration from ConnectionHandler
-			// and email notification code based on patch provided
-			// by J. Gauthier
-
-			// read in the various parts of the log string
-			bool error = false;
-			int itemcount = 0;
-			while(itemcount < (o.log_user_agent ? 24 : 23)) {
-				try {
-				    	char *logline = new char[8192];
-					rc = ipcpeersock->getLine(logline, 8192, 3, true);  // throws on err
-					if (rc < 0) {
-						delete ipcpeersock;
-						if (!is_daemonised)
-							std::cout << "Error reading from log socket" <<std::endl;
-						syslog(LOG_ERR, "Error reading from log socket");
-						error = true;
-						break;
-					}
-					else {
-						switch (itemcount) {
-						case 0:
-							isexception = atoi(logline);
-							break;
-						case 1:
-							cat = logline;
-							break;
-						case 2:
-							isnaughty = atoi(logline);
-							break;
-						case 3:
-							sweight = logline;
-							break;
-						case 4:
-							where = logline;
-							break;
-						case 5:
-							what = logline;
-							break;
-						case 6:
-							how = logline;
-							break;
-						case 7:
-							who = logline;
-							break;
-						case 8:
-							from = logline;
-							break;
-						case 9:
-							port = atoi(logline);
-							break;
-						case 10:
-							wasscanned = atoi(logline);
-							break;
-						case 11:
-							wasinfected = atoi(logline);
-							break;
-						case 12:
-							contentmodified = atoi(logline);
-							break;
-						case 13:
-							urlmodified = atoi(logline);
-							break;
-						case 14:
-							headermodified = atoi(logline);
-							break;
-						case 15:
-							ssize = logline;
-							break;
-						case 16:
-							filtergroup = atoi(logline);
-							break;
-						case 17:
-							code = atoi(logline);
-							break;
-						case 18:
-							cachehit = atoi(logline);
-							break;
-						case 19:
-							mimetype = logline;
-							break;
-						case 20:
-							tv_sec = atol(logline);
-							break;
-						case 21:
-							tv_usec = atol(logline);
-							break;
-						case 22:
-							clienthost = logline;
-							break;
-						case 23:
-							useragent = logline;
-							break;
-						}
-					}
-					delete[]logline;
-				}
-				catch(std::exception & e) {
-					delete ipcpeersock;
-					if (logconerror)
-						syslog(LOG_ERR, "Error reading ipc. (Ignorable)");
-					error = true;
-					break;
-				}
-				itemcount++;
-			}
-
-			// don't build the log line if we couldn't read all the component parts
-			if (error)
-				continue;
-
-			// Start building the log line
-
-			if (port != 0 && port != 80) {
-				// put port numbers of non-standard HTTP requests into the logged URL
-				String newwhere(where);
-				if (newwhere.after("://").contains("/")) {
-					String proto, host, path;
-					proto = newwhere.before("://");
-					host = newwhere.after("://");
-					path = host.after("/");
-					host = host.before("/");
-					newwhere = proto;
-					newwhere += "://";
-					newwhere += host;
-					newwhere += ":";
-					newwhere += String((int) port);
-					newwhere += "/";
-					newwhere += path;
-					where = newwhere;
-				} else {
-					where += ":";
-					where += String((int) port);
-				}
-			}
-
-			// stamp log entries so they stand out/can be searched
-			if (isnaughty) {
-				what = "*DENIED* " + what;
-			}
-			else if (isexception && (o.log_exception_hits == 2)) {
-				what = "*EXCEPTION* " + what;
-			}
-		   
-			if (wasscanned) {
-				if (wasinfected) {
-					what = "*INFECTED* " + what;
-				} else {
-					what = "*SCANNED* " + what;
-				}
-			}
-			if (contentmodified) {
-				what = "*CONTENTMOD* " + what;
-			}
-			if (urlmodified) {
-				what = "*URLMOD* " + what;
-			}
-			if (headermodified) {
-				what = "*HEADERMOD* " + what;
-			}
-
-			std::string builtline, year, month, day, hour, min, sec, when, vbody, utime;
-			struct timeval theend;
-
-			// create a string representation of UNIX timestamp if desired
-			if (o.log_timestamp || (o.log_file_format == 3)) {
-				gettimeofday(&theend, NULL);
-				String temp((int) (theend.tv_usec / 1000));
-				while (temp.length() < 3) {
-					temp = "0" + temp;
-				}
-				if (temp.length() > 3) {
-					temp = "999";
-				}
-				utime = temp;
-				utime = "." + utime;
-				utime = String((int) theend.tv_sec) + utime;
-			}
-
-			if (o.log_file_format != 3) {
-				// "when" not used in format 3, and not if logging timestamps instead
-				String temp;
-				time_t tnow;  // to hold the result from time()
-				struct tm *tmnow;  // to hold the result from localtime()
-				time(&tnow);  // get the time after the lock so all entries in order
-				tmnow = localtime(&tnow);  // convert to local time (BST, etc)
-				year = String(tmnow->tm_year + 1900);
-				month = String(tmnow->tm_mon + 1);
-				day = String(tmnow->tm_mday);
-				hour = String(tmnow->tm_hour);
-				temp = String(tmnow->tm_min);
-				if (temp.length() == 1) {
-					temp = "0" + temp;
-				}
-				min = temp;
-				temp = String(tmnow->tm_sec);
-				if (temp.length() == 1) {
-					temp = "0" + temp;
-				}
-				sec = temp;
-				when = year + "." + month + "." + day + " " + hour + ":" + min + ":" + sec;
-				// truncate long log items
-				/*if ((o.max_logitem_length > 0) && (when.length() > o.max_logitem_length))
-					when.resize(o.max_logitem_length);*/
-				// append timestamp if desired
-				if (o.log_timestamp)
-					when += " " + utime;
-					
-			}
-
-			// truncate long log items
-			if (o.max_logitem_length > 0) {
-				//where.limitLength(o.max_logitem_length);
-				if (cat.length() > o.max_logitem_length)
-					cat.resize(o.max_logitem_length);
-				if (what.length() > o.max_logitem_length)
-					what.resize(o.max_logitem_length);
-				if (where.length() > o.max_logitem_length)
-					where.resize(o.max_logitem_length);
-				/*if (who.length() > o.max_logitem_length)
-					who.resize(o.max_logitem_length);
-				if (from.length() > o.max_logitem_length)
-					from.resize(o.max_logitem_length);
-				if (how.length() > o.max_logitem_length)
-					how.resize(o.max_logitem_length);
-				if (ssize.length() > o.max_logitem_length)
-					ssize.resize(o.max_logitem_length);*/
-			}
-
-			// blank out IP, hostname and username if desired
-			if (o.anonymise_logs) {
-				who = "";
-				from = "0.0.0.0";
-				clienthost.clear();
-			}
-
-			String stringcode(code);
-			String stringgroup(filtergroup+1);
-
-			switch (o.log_file_format) {
-			case 4:
-				builtline = when +"\t"+ who + "\t" + from + "\t" + where + "\t" + what + "\t" + how
-					+ "\t" + ssize + "\t" + sweight + "\t" + cat +  "\t" + stringgroup + "\t"
-					+ stringcode + "\t" + mimetype + "\t" + clienthost + "\t" + o.fg[filtergroup]->name
-					+ "\t" + (o.log_user_agent ? useragent : "-");
+	while (!ttg)
+	{
+		// XXX Need a cancellation handler which will unlock this mutex
+		pthread_mutex_lock(&logmutex);
+		if (ttg)
+			break;
+		while (logqueue.empty())
+		{
+			pthread_cond_wait(&logevent, &logmutex);
+			if (ttg)
 				break;
-			case 3:
-				{
-					// as certain bits of info are logged in format 3, their creation is best done here, not in all cases.
-					std::string duration, hier, hitmiss;
-					long durationsecs, durationusecs;
-					durationsecs = (theend.tv_sec - tv_sec);
-					durationusecs = theend.tv_usec - tv_usec;
-					durationusecs = (durationusecs / 1000) + durationsecs * 1000;
-					String temp((int) durationusecs);
-					while (temp.length() < 6) {
-						temp = " " + temp;
-					}
-					duration = temp;
+		}
+		if (ttg)
+		{
+			pthread_mutex_unlock(&logmutex);
+			break;
+		}
+		// TODO - clear out the log queue on exit
+		logentry* l = logqueue.front();
+		logqueue.pop();
+		pthread_mutex_unlock(&logmutex);
 
-					if (code == 403) {
-						hitmiss = "TCP_DENIED/403";
+		// Start building the log line
+
+		if (l->port != 0 && l->port != 80) {
+			// put port numbers of non-standard HTTP requests into the logged URL
+			String newwhere(l->where);
+			if (newwhere.after("://").contains("/")) {
+				String proto, host, path;
+				proto = newwhere.before("://");
+				host = newwhere.after("://");
+				path = host.after("/");
+				host = host.before("/");
+				newwhere = proto;
+				newwhere += "://";
+				newwhere += host;
+				newwhere += ":";
+				newwhere += String(l->port);
+				newwhere += "/";
+				newwhere += path;
+				l->where = newwhere;
+			} else {
+				l->where += ":";
+				l->where += String(l->port);
+			}
+		}
+
+		// stamp log entries so they stand out/can be searched
+		if (l->isnaughty) {
+			l->what = "*DENIED* " + l->what;
+		}
+		else if (l->isexception && (o.log_exception_hits == 2)) {
+			l->what = "*EXCEPTION* " + l->what;
+		}
+	   
+		if (l->wasscanned) {
+			if (l->wasinfected) {
+				l->what = "*INFECTED* " + l->what;
+			} else {
+				l->what = "*SCANNED* " + l->what;
+			}
+		}
+		if (l->contentmodified) {
+			l->what = "*CONTENTMOD* " + l->what;
+		}
+		if (l->urlmodified) {
+			l->what = "*URLMOD* " + l->what;
+		}
+		if (l->headermodified) {
+			l->what = "*HEADERMOD* " + l->what;
+		}
+
+		std::string builtline, year, month, day, hour, min, sec, when, vbody, utime;
+		struct timeval theend;
+
+		// create a string representation of UNIX timestamp if desired
+		if (o.log_timestamp || (o.log_file_format == 3)) {
+			gettimeofday(&theend, NULL);
+			String temp((int) (theend.tv_usec / 1000));
+			while (temp.length() < 3) {
+				temp = "0" + temp;
+			}
+			if (temp.length() > 3) {
+				temp = "999";
+			}
+			utime = temp;
+			utime = "." + utime;
+			utime = String((int) theend.tv_sec) + utime;
+		}
+
+		if (o.log_file_format != 3) {
+			// "when" not used in format 3, and not if logging timestamps instead
+			String temp;
+			time_t tnow;  // to hold the result from time()
+			struct tm tmnow;  // to hold the result from localtime()
+			time(&tnow);  // get the time after the lock so all entries in order
+			localtime_r(&tnow, &tmnow);  // convert to local time (BST, etc)
+			year = String(tmnow.tm_year + 1900);
+			month = String(tmnow.tm_mon + 1);
+			day = String(tmnow.tm_mday);
+			hour = String(tmnow.tm_hour);
+			temp = String(tmnow.tm_min);
+			if (temp.length() == 1) {
+				temp = "0" + temp;
+			}
+			min = temp;
+			temp = String(tmnow.tm_sec);
+			if (temp.length() == 1) {
+				temp = "0" + temp;
+			}
+			sec = temp;
+			when = year + "." + month + "." + day + " " + hour + ":" + min + ":" + sec;
+			if (o.log_timestamp)
+				when += " " + utime;
+				
+		}
+
+		// truncate long log items
+		if (o.max_logitem_length > 0) {
+			if (l->cat.length() > o.max_logitem_length)
+				l->cat.resize(o.max_logitem_length);
+			if (l->what.length() > o.max_logitem_length)
+				l->what.resize(o.max_logitem_length);
+			if (l->where.length() > o.max_logitem_length)
+				l->where.resize(o.max_logitem_length);
+		}
+
+		// blank out IP, hostname and username if desired
+		if (o.anonymise_logs) {
+			l->who = "";
+			l->from = "0.0.0.0";
+			l->clienthost.clear();
+		}
+
+		String stringcode(l->code);
+		String stringgroup(l->filtergroup+1);
+
+		switch (o.log_file_format) {
+		case 4:
+			builtline = when +"\t"+ l->who + "\t" + l->from + "\t" + l->where + "\t" + l->what + "\t" + l->how
+				+ "\t" + l->ssize + "\t" + l->sweight + "\t" + l->cat +  "\t" + stringgroup + "\t"
+				+ stringcode + "\t" + l->mimetype + "\t" + l->clienthost + "\t" + o.fg[l->filtergroup]->name
+				+ "\t" + (o.log_user_agent ? l->useragent : "-");
+			break;
+		case 3:
+			{
+				// as certain bits of info are logged in format 3, their creation is best done here, not in all cases.
+				std::string duration, hier, hitmiss;
+				long durationsecs, durationusecs;
+				durationsecs = (theend.tv_sec - l->t.tv_sec);
+				durationusecs = theend.tv_usec - l->t.tv_usec;
+				durationusecs = (durationusecs / 1000) + durationsecs * 1000;
+				String temp((int) durationusecs);
+				while (temp.length() < 6) {
+					temp = " " + temp;
+				}
+				duration = temp;
+
+				if (l->code == 403) {
+					hitmiss = "TCP_DENIED/403";
+				} else {
+					if (l->cachehit) {
+						hitmiss = "TCP_HIT/";
+						hitmiss.append(stringcode);
 					} else {
-						if (cachehit) {
-							hitmiss = "TCP_HIT/";
-							hitmiss.append(stringcode);
-						} else {
-							hitmiss = "TCP_MISS/";
-							hitmiss.append(stringcode);
-						}
+						hitmiss = "TCP_MISS/";
+						hitmiss.append(stringcode);
 					}
-					hier = "DEFAULT_PARENT/";
-					hier += o.proxy_ip;
-
-					/*if (o.max_logitem_length > 0) {
-						if (utime.length() > o.max_logitem_length)
-							utime.resize(o.max_logitem_length);
-						if (duration.length() > o.max_logitem_length)
-							duration.resize(o.max_logitem_length);
-						if (hier.length() > o.max_logitem_length)
-							hier.resize(o.max_logitem_length);
-						if (hitmiss.length() > o.max_logitem_length)
-							hitmiss.resize(o.max_logitem_length);
-					}*/
-
-					builtline = utime + " " + duration + " " + ( (clienthost.length() > 0) ? clienthost : from) + " " + hitmiss + " " + ssize + " "
-						+ how + " " + where + " " + who + " " + hier + " " + mimetype ;
-					break;
 				}
-			case 2:
-				builtline = "\"" + when  +"\",\""+ who + "\",\"" + from + "\",\"" + where + "\",\"" + what + "\",\""
-					+ how + "\",\"" + ssize + "\",\"" + sweight + "\",\"" + cat +  "\",\"" + stringgroup + "\",\""
-					+ stringcode + "\",\"" + mimetype + "\",\"" + clienthost + "\",\"" + o.fg[filtergroup]->name + "\",\""
-					+ (o.log_user_agent ? useragent : "-") + "\"";
-				break;
-			default:
-				builtline = when +" "+ who + " " + from + " " + where + " " + what + " "
-					+ how + " " + ssize + " " + sweight + " " + cat +  " " + stringgroup + " "
-					+ stringcode + " " + mimetype + " " + clienthost + " " + o.fg[filtergroup]->name + " "
-					+ (o.log_user_agent ? useragent : "-");
-			}
+				hier = "DEFAULT_PARENT/";
+				hier += o.proxy_ip;
 
-			if (!logsyslog)
-				*logfile << builtline << std::endl;  // append the line
-			else
-				syslog(LOG_INFO, "%s", builtline.c_str());
+				builtline = utime + " " + duration + " " + ( (l->clienthost.length() > 0) ? l->clienthost : l->from) + " " + hitmiss + " " + l->ssize + " "
+					+ l->how + " " + l->where + " " + l->who + " " + hier + " " + l->mimetype ;
+				break;
+			}
+		case 2:
+			builtline = "\"" + when  +"\",\""+ l->who + "\",\"" + l->from + "\",\"" + l->where + "\",\"" + l->what + "\",\""
+				+ l->how + "\",\"" + l->ssize + "\",\"" + l->sweight + "\",\"" + l->cat +  "\",\"" + stringgroup + "\",\""
+				+ stringcode + "\",\"" + l->mimetype + "\",\"" + l->clienthost + "\",\"" + o.fg[l->filtergroup]->name + "\",\""
+				+ (o.log_user_agent ? l->useragent : "-") + "\"";
+			break;
+		default:
+			builtline = when +" "+ l->who + " " + l->from + " " + l->where + " " + l->what + " "
+				+ l->how + " " + l->ssize + " " + l->sweight + " " + l->cat +  " " + stringgroup + " "
+				+ stringcode + " " + l->mimetype + " " + l->clienthost + " " + o.fg[l->filtergroup]->name + " "
+				+ (o.log_user_agent ? l->useragent : "-");
+		}
+
+		if (!o.log_syslog)
+			*logfile << builtline << std::endl;  // append the line
+		else
+			syslog(LOG_INFO, "%s", builtline.c_str());
 #ifdef DGDEBUG
-			std::cout << itemcount << " " << builtline << std::endl;
+		std::cout << itemcount << " " << builtline << std::endl;
 #endif
-			delete ipcpeersock;  // close the connection
 
 #ifdef ENABLE_EMAIL
-			// do the notification work here, but fork for speed
-			if (o.fg[filtergroup]->use_smtp==true) {
+		// do the notification work here, but fork for speed
+		if (o.fg[filtergroup]->use_smtp==true) {
 
-				// run through the gambit to find out of we're sending notification
-				// because if we're not.. then fork()ing is a waste of time.
+			// run through the gambit to find out of we're sending notification
+			// because if we're not.. then fork()ing is a waste of time.
 
-				// virus
-				if ((wasscanned && wasinfected) && (o.fg[filtergroup]->notifyav))  {
-					// Use a double fork to ensure child processes are reaped adequately.
-					pid_t smtppid;
-					if ((smtppid = fork()) != 0) {
-						// Parent immediately waits for first child
-						waitpid(smtppid, NULL, 0);
-					} else {
-						// First child forks off the *real* process, but immediately exits itself
-						if (fork() == 0)  {
-							// Second child - do stuff
-							setsid();
-							FILE* mail = popen (o.mailer.c_str(), "w");
-							if (mail==NULL) {
-								syslog(LOG_ERR, "Unable to contact defined mailer.");
-							}
-							else {
-								fprintf(mail, "To: %s\n", o.fg[filtergroup]->avadmin.c_str());
-								fprintf(mail, "From: %s\n", o.fg[filtergroup]->mailfrom.c_str());
-								fprintf(mail, "Subject: %s\n", o.fg[filtergroup]->avsubject.c_str());
-								fprintf(mail, "A virus was detected by DansGuardian.\n\n");
-								fprintf(mail, "%-10s%s\n", "Data/Time:", when.c_str());
-								if (who != "-")
-									fprintf(mail, "%-10s%s\n", "User:", who.c_str());
-								fprintf(mail, "%-10s%s (%s)\n", "From:", from.c_str(),  ((clienthost.length() > 0) ? clienthost.c_str() : "-"));
-								fprintf(mail, "%-10s%s\n", "Where:", where.c_str());
-								// specifically, the virus name comes after message 1100 ("Virus or bad content detected.")
-								String swhat(what);
-								fprintf(mail, "%-10s%s\n", "Why:", swhat.after(o.language_list.getTranslation(1100)).toCharArray() + 1);
-								fprintf(mail, "%-10s%s\n", "Method:", how.c_str());
-								fprintf(mail, "%-10s%s\n", "Size:", ssize.c_str());
-								fprintf(mail, "%-10s%s\n", "Weight:", sweight.c_str());
-								if (cat.c_str()!=NULL)
-									fprintf(mail, "%-10s%s\n", "Category:", cat.c_str());
-								fprintf(mail, "%-10s%s\n", "Mime type:", mimetype.c_str());
-								fprintf(mail, "%-10s%s\n", "Group:", o.fg[filtergroup]->name.c_str());
-								fprintf(mail, "%-10s%s\n", "HTTP resp:", stringcode.c_str());
-
-								pclose(mail);
-							}
-							// Second child exits
-							_exit(0);
+			// virus
+			if ((wasscanned && wasinfected) && (o.fg[filtergroup]->notifyav))  {
+				// Use a double fork to ensure child processes are reaped adequately.
+				pid_t smtppid;
+				if ((smtppid = fork()) != 0) {
+					// Parent immediately waits for first child
+					waitpid(smtppid, NULL, 0);
+				} else {
+					// First child forks off the *real* process, but immediately exits itself
+					if (fork() == 0)  {
+						// Second child - do stuff
+						setsid();
+						FILE* mail = popen (o.mailer.c_str(), "w");
+						if (mail==NULL) {
+							syslog(LOG_ERR, "Unable to contact defined mailer.");
 						}
-						// First child exits
+						else {
+							fprintf(mail, "To: %s\n", o.fg[filtergroup]->avadmin.c_str());
+							fprintf(mail, "From: %s\n", o.fg[filtergroup]->mailfrom.c_str());
+							fprintf(mail, "Subject: %s\n", o.fg[filtergroup]->avsubject.c_str());
+							fprintf(mail, "A virus was detected by DansGuardian.\n\n");
+							fprintf(mail, "%-10s%s\n", "Data/Time:", when.c_str());
+							if (who != "-")
+								fprintf(mail, "%-10s%s\n", "User:", who.c_str());
+							fprintf(mail, "%-10s%s (%s)\n", "From:", from.c_str(),  ((clienthost.length() > 0) ? clienthost.c_str() : "-"));
+							fprintf(mail, "%-10s%s\n", "Where:", where.c_str());
+							// specifically, the virus name comes after message 1100 ("Virus or bad content detected.")
+							String swhat(what);
+							fprintf(mail, "%-10s%s\n", "Why:", swhat.after(o.language_list.getTranslation(1100)).toCharArray() + 1);
+							fprintf(mail, "%-10s%s\n", "Method:", how.c_str());
+							fprintf(mail, "%-10s%s\n", "Size:", ssize.c_str());
+							fprintf(mail, "%-10s%s\n", "Weight:", sweight.c_str());
+							if (cat.c_str()!=NULL)
+								fprintf(mail, "%-10s%s\n", "Category:", cat.c_str());
+							fprintf(mail, "%-10s%s\n", "Mime type:", mimetype.c_str());
+							fprintf(mail, "%-10s%s\n", "Group:", o.fg[filtergroup]->name.c_str());
+							fprintf(mail, "%-10s%s\n", "HTTP resp:", stringcode.c_str());
+
+							pclose(mail);
+						}
+						// Second child exits
 						_exit(0);
 					}
+					// First child exits
+					_exit(0);
+				}
+			}
+
+			// naughty OR virus 
+			else if ((isnaughty || (wasscanned && wasinfected)) && (o.fg[filtergroup]->notifycontent)) {
+				byuser = o.fg[filtergroup]->byuser;
+
+				// if no violations so far by this user/group,
+				// reset threshold counters 
+				if (byuser) {
+					if (!violation_map[who]) {
+						// set the time of the first violation
+						timestamp_map[who] = time(0);
+						vbody_map[who] = "";
+					}
+				}
+				else if (!o.fg[filtergroup]->current_violations) {
+					// set the time of the first violation 
+					o.fg[filtergroup]->threshold_stamp = time(0);
+					o.fg[filtergroup]->violationbody="";
 				}
 
-				// naughty OR virus 
-				else if ((isnaughty || (wasscanned && wasinfected)) && (o.fg[filtergroup]->notifycontent)) {
-					byuser = o.fg[filtergroup]->byuser;
+				// increase per-user or per-group violation count
+				if (byuser)
+					violation_map[who]++;
+				else
+					o.fg[filtergroup]->current_violations++;
 
-					// if no violations so far by this user/group,
-					// reset threshold counters 
-					if (byuser) {
-						if (!violation_map[who]) {
-							// set the time of the first violation
-							timestamp_map[who] = time(0);
-							vbody_map[who] = "";
-						}
-					}
-					else if (!o.fg[filtergroup]->current_violations) {
-						// set the time of the first violation 
-						o.fg[filtergroup]->threshold_stamp = time(0);
-						o.fg[filtergroup]->violationbody="";
-					}
+				// construct email report
+				char *vbody_temp = new char[8192];   
+				sprintf(vbody_temp, "%-10s%s\n", "Data/Time:", when.c_str());
+				vbody+=vbody_temp;
 
-					// increase per-user or per-group violation count
-					if (byuser)
-						violation_map[who]++;
-					else
-						o.fg[filtergroup]->current_violations++;
+				if ((!byuser) && (who != "-")) {
+					sprintf(vbody_temp, "%-10s%s\n", "User:", who.c_str());
+					vbody+=vbody_temp;
+				}
+				sprintf(vbody_temp, "%-10s%s (%s)\n", "From:", from.c_str(),  ((clienthost.length() > 0) ? clienthost.c_str() : "-"));
+				vbody+=vbody_temp;
+				sprintf(vbody_temp, "%-10s%s\n", "Where:", where.c_str());
+				vbody+=vbody_temp;
+				sprintf(vbody_temp, "%-10s%s\n", "Why:", what.c_str());
+				vbody+=vbody_temp;
+				sprintf(vbody_temp, "%-10s%s\n", "Method:", how.c_str());
+				vbody+=vbody_temp;
+				sprintf(vbody_temp, "%-10s%s\n", "Size:", ssize.c_str());
+				vbody+=vbody_temp;
+				sprintf(vbody_temp, "%-10s%s\n", "Weight:", sweight.c_str());
+				vbody+=vbody_temp;
+				if (cat.c_str()!=NULL) {
+					sprintf(vbody_temp, "%-10s%s\n", "Category:", cat.c_str());
+					vbody+=vbody_temp;
+				}
+				sprintf(vbody_temp, "%-10s%s\n", "Mime type:", mimetype.c_str());
+				vbody+=vbody_temp;
+				sprintf(vbody_temp, "%-10s%s\n", "Group:", o.fg[filtergroup]->name.c_str());
+				vbody+=vbody_temp;
+				sprintf(vbody_temp, "%-10s%s\n\n", "HTTP resp:", stringcode.c_str());
+				vbody+=vbody_temp;
+				delete[] vbody_temp;
+				
+				// store the report with the group/user
+				if (byuser) {
+					vbody_map[who]+=vbody;
+					curv_tmp = violation_map[who];
+					stamp_tmp = timestamp_map[who];
+				}
+				else {
+					o.fg[filtergroup]->violationbody+=vbody;
+					curv_tmp = o.fg[filtergroup]->current_violations;
+					stamp_tmp = o.fg[filtergroup]->threshold_stamp;
+				}
 
-					// construct email report
-					char *vbody_temp = new char[8192];   
-					sprintf(vbody_temp, "%-10s%s\n", "Data/Time:", when.c_str());
-					vbody+=vbody_temp;
-
-					if ((!byuser) && (who != "-")) {
-						sprintf(vbody_temp, "%-10s%s\n", "User:", who.c_str());
-						vbody+=vbody_temp;
-					}
-					sprintf(vbody_temp, "%-10s%s (%s)\n", "From:", from.c_str(),  ((clienthost.length() > 0) ? clienthost.c_str() : "-"));
-					vbody+=vbody_temp;
-					sprintf(vbody_temp, "%-10s%s\n", "Where:", where.c_str());
-					vbody+=vbody_temp;
-					sprintf(vbody_temp, "%-10s%s\n", "Why:", what.c_str());
-					vbody+=vbody_temp;
-					sprintf(vbody_temp, "%-10s%s\n", "Method:", how.c_str());
-					vbody+=vbody_temp;
-					sprintf(vbody_temp, "%-10s%s\n", "Size:", ssize.c_str());
-					vbody+=vbody_temp;
-					sprintf(vbody_temp, "%-10s%s\n", "Weight:", sweight.c_str());
-					vbody+=vbody_temp;
-					if (cat.c_str()!=NULL) {
-						sprintf(vbody_temp, "%-10s%s\n", "Category:", cat.c_str());
-						vbody+=vbody_temp;
-					}
-					sprintf(vbody_temp, "%-10s%s\n", "Mime type:", mimetype.c_str());
-					vbody+=vbody_temp;
-					sprintf(vbody_temp, "%-10s%s\n", "Group:", o.fg[filtergroup]->name.c_str());
-					vbody+=vbody_temp;
-					sprintf(vbody_temp, "%-10s%s\n\n", "HTTP resp:", stringcode.c_str());
-					vbody+=vbody_temp;
-					delete[] vbody_temp;
-					
-					// store the report with the group/user
-					if (byuser) {
-						vbody_map[who]+=vbody;
-						curv_tmp = violation_map[who];
-						stamp_tmp = timestamp_map[who];
-					}
-					else {
-						o.fg[filtergroup]->violationbody+=vbody;
-						curv_tmp = o.fg[filtergroup]->current_violations;
-						stamp_tmp = o.fg[filtergroup]->threshold_stamp;
-					}
-
-					// if threshold exceeded, send mail
-					if (curv_tmp >= o.fg[filtergroup]->violations) {
-						if ((o.fg[filtergroup]->threshold == 0) || ( (time(0) - stamp_tmp) <= o.fg[filtergroup]->threshold)) {
-							// Use a double fork to ensure child processes are reaped adequately.
-							pid_t smtppid;
-							if ((smtppid = fork()) != 0) {
-								// Parent immediately waits for first child
-								waitpid(smtppid, NULL, 0);
-							} else {
-								// First child forks off the *real* process, but immediately exits itself
-								if (fork() == 0)  {
-									// Second child - do stuff
-									setsid();
-									FILE* mail = popen (o.mailer.c_str(), "w");
-									if (mail==NULL) {
-										syslog(LOG_ERR, "Unable to contact defined mailer.");
-									}
-									else {
-										fprintf(mail, "To: %s\n", o.fg[filtergroup]->contentadmin.c_str());
-										fprintf(mail, "From: %s\n", o.fg[filtergroup]->mailfrom.c_str());
-
-										if (byuser)
-											fprintf(mail, "Subject: %s (%s)\n", o.fg[filtergroup]->contentsubject.c_str(), who.c_str());
-										else
-											fprintf(mail, "Subject: %s\n", o.fg[filtergroup]->contentsubject.c_str());
-
-										fprintf(mail, "%i violation%s ha%s occured within %i seconds.\n",
-											curv_tmp,
-											(curv_tmp==1)?"":"s",
-											(curv_tmp==1)?"s":"ve",									 
-											o.fg[filtergroup]->threshold);
-
-										fprintf(mail, "%s\n\n", "This exceeds the notification threshold.");
-										if (byuser)
-											fprintf(mail, "%s", vbody_map[who].c_str());
-										else
-											fprintf(mail, "%s", o.fg[filtergroup]->violationbody.c_str());
-										pclose(mail);
-									}
-									// Second child exits
-									_exit(0);
+				// if threshold exceeded, send mail
+				if (curv_tmp >= o.fg[filtergroup]->violations) {
+					if ((o.fg[filtergroup]->threshold == 0) || ( (time(0) - stamp_tmp) <= o.fg[filtergroup]->threshold)) {
+						// Use a double fork to ensure child processes are reaped adequately.
+						pid_t smtppid;
+						if ((smtppid = fork()) != 0) {
+							// Parent immediately waits for first child
+							waitpid(smtppid, NULL, 0);
+						} else {
+							// First child forks off the *real* process, but immediately exits itself
+							if (fork() == 0)  {
+								// Second child - do stuff
+								setsid();
+								FILE* mail = popen (o.mailer.c_str(), "w");
+								if (mail==NULL) {
+									syslog(LOG_ERR, "Unable to contact defined mailer.");
 								}
-								// First child exits
+								else {
+									fprintf(mail, "To: %s\n", o.fg[filtergroup]->contentadmin.c_str());
+									fprintf(mail, "From: %s\n", o.fg[filtergroup]->mailfrom.c_str());
+
+									if (byuser)
+										fprintf(mail, "Subject: %s (%s)\n", o.fg[filtergroup]->contentsubject.c_str(), who.c_str());
+									else
+										fprintf(mail, "Subject: %s\n", o.fg[filtergroup]->contentsubject.c_str());
+
+									fprintf(mail, "%i violation%s ha%s occured within %i seconds.\n",
+										curv_tmp,
+										(curv_tmp==1)?"":"s",
+										(curv_tmp==1)?"s":"ve",									 
+										o.fg[filtergroup]->threshold);
+
+									fprintf(mail, "%s\n\n", "This exceeds the notification threshold.");
+									if (byuser)
+										fprintf(mail, "%s", vbody_map[who].c_str());
+									else
+										fprintf(mail, "%s", o.fg[filtergroup]->violationbody.c_str());
+									pclose(mail);
+								}
+								// Second child exits
 								_exit(0);
 							}
+							// First child exits
+							_exit(0);
 						}
-						if (byuser)
-							violation_map[who]=0;
-						else
-							o.fg[filtergroup]->current_violations=0;
 					}
-				} // end naughty OR virus
-			} // end usesmtp
+					if (byuser)
+						violation_map[who]=0;
+					else
+						o.fg[filtergroup]->current_violations=0;
+				}
+			} // end naughty OR virus
+		} // end usesmtp
 #endif
-
-			continue;  // go back to listening
-		}
+		delete l;
 	}
-	// should never get here
-	syslog(LOG_ERR, "%s", "Something wicked has ipc happened");
 
 	if (logfile) {
 		logfile->close();  // close the file
 		delete logfile;
 	}
-	loggersock.close();
-	return 1;  // It is only possible to reach here with an error
+	return NULL;
 }
 
-int url_list_listener(bool logconerror)
+void *ipstats_loop(void *arg)
 {
+	int maxusage = 0;
+	while (!ttg)
+	{
+		sleep(180);
+		// XXX Need cancellation handler to unlock mutex
+		// and close stats file if open
+		pthread_mutex_lock(&ipcachemutex);
 #ifdef DGDEBUG
-	std::cout << "url listener started" << std::endl;
+		std::cout << "ips in list: " << iplist.getNumberOfItems() << std::endl;
+		std::cout << "purging old ip entries" << std::endl;
+		std::cout << "ips in list: " << iplist.getNumberOfItems() << std::endl;
 #endif
-	UDSocket* ipcpeersock = NULL;  // the socket which will contain the ipc connection
-	int rc, ipcsockfd;
-	char *logline = new char[32000];
-	char reply;
-	DynamicURLList urllist;
+		ipcache->purgeOldEntries();
+		// write usage statistics
+		int currusage = ipcache->getNumberOfItems();
+		pthread_mutex_unlock(&ipcachemutex);
+		if (currusage > maxusage)
+			maxusage = currusage;
+		String usagestats;
+		usagestats += String(currusage) + "\n" + String(maxusage) + "\n";
 #ifdef DGDEBUG
-	std::cout << "setting url list size-age:" << o.url_cache_number << "-" << o.url_cache_age << std::endl;
+		std::cout << "writing usage stats: " << currusage << " " << maxusage << std::endl;
 #endif
-	urllist.setListSize(o.url_cache_number, o.url_cache_age);
-	ipcsockfd = urllistsock.getFD();
-#ifdef DGDEBUG
-	std::cout << "url ipcsockfd:" << ipcsockfd << std::endl;
-#endif
-
-	fd_set fdSet;  // our set of fds (only 1) that select monitors for us
-	fd_set fdcpy;  // select modifes the set so we need to use a copy
-	FD_ZERO(&fdSet);  // clear the set
-	FD_SET(ipcsockfd, &fdSet);  // add ipcsock to the set
-
-#ifdef DGDEBUG
-	std::cout << "url listener entering select()" << std::endl;
-#endif
-	while (true) {		// loop, essentially, for ever
-
-		fdcpy = fdSet;  // take a copy
-
-		rc = select(ipcsockfd + 1, &fdcpy, NULL, NULL, NULL);  // block
-		// until something happens
-#ifdef DGDEBUG
-		std::cout << "url listener select returned" << std::endl;
-#endif
-		if (rc < 0) {	// was an error
-			if (errno == EINTR) {
-				continue;  // was interupted by a signal so restart
-			}
-			if (logconerror) {
-				syslog(LOG_ERR, "%s", "url ipc rc<0. (Ignorable)");
-			}
-			continue;
+		int statfd = open(o.stat_location.c_str(), O_CREAT | O_WRONLY, S_IRUSR | S_IWUSR | S_IRGRP | S_IROTH);
+		if (statfd > 0) {
+			write(statfd, usagestats.toCharArray(), usagestats.length());
 		}
-		if (FD_ISSET(ipcsockfd, &fdcpy)) {
-#ifdef DGDEBUG
-			std::cout << "received an url request" << std::endl;
-#endif
-			ipcpeersock = urllistsock.accept();
-			if (ipcpeersock->getFD() < 0) {
-				delete ipcpeersock;
-				if (logconerror) {
-#ifdef DGDEBUG
-					std::cout << "Error accepting url ipc. (Ignorable)" << std::endl;
-#endif
-					syslog(LOG_ERR, "%s", "Error accepting url ipc. (Ignorable)");
-				}
-				continue;  // if the fd of the new socket < 0 there was error
-				// but we ignore it as its not a problem
-			}
-			try {
-				rc = ipcpeersock->getLine(logline, 32000, 3, true);  // throws on err
-			}
-			catch(std::exception & e) {
-				delete ipcpeersock;  // close the connection
-				if (logconerror) {
-#ifdef DGDEBUG
-					std::cout << "Error reading url ipc. (Ignorable)" << std::endl;
-					std::cerr << e.what() << std::endl;
-#endif
-					syslog(LOG_ERR, "%s", "Error reading url ipc. (Ignorable)");
-					syslog(LOG_ERR, "%s", e.what());
-				}
-				continue;
-			}
-			// check the command type
-			// f: flush the cache
-			// g: add a URL to the cache
-			// everything else: search the cache
-			// n.b. we use command characters with ASCII encoding
-			// > 100, because we can have up to 99 filter groups, and
-			// group no. plus 1 is the first character in the 'everything else'
-			// case.
-			if (logline[0] == 'f') {
-				delete ipcpeersock;  // close the connection
-				urllist.flush();
-#ifdef DGDEBUG
-				std::cout << "url FLUSH request" << std::endl;
-#endif
-				continue;
-			}
-			if (logline[0] == 'g') {
-				delete ipcpeersock;  // close the connection
-				urllist.addEntry(logline + 2, logline[1]-1);
-				continue;
-			}
-			if (urllist.inURLList(logline + 1, logline[0]-1)) {
-				reply = 'Y';
-			} else {
-				reply = 'N';
-			}
-			try {
-				ipcpeersock->writeToSockete(&reply, 1, 0, 6);
-			}
-			catch(std::exception & e) {
-				delete ipcpeersock;  // close the connection
-				if (logconerror) {
-					syslog(LOG_ERR, "%s", "Error writing url ipc. (Ignorable)");
-					syslog(LOG_ERR, "%s", e.what());
-				}
-				continue;
-			}
-			delete ipcpeersock;  // close the connection
-#ifdef DGDEBUG
-			std::cout << "url list reply: " << reply << std::endl;
-#endif
-			continue;  // go back to listening
-		}
+		close(statfd);
 	}
-	delete[]logline;
-	urllistsock.close();  // be nice and neat
-	return 1;  // It is only possible to reach here with an error
-}
-
-int ip_list_listener(std::string stat_location, bool logconerror) {
-#ifdef DGDEBUG
-	std::cout << "ip listener started" << std::endl;
-#endif
-	UDSocket *ipcpeersock;
-	int rc, ipcsockfd;
-	char* inbuff = new char[16];
-
-	// pass in size of list, and max. age of entries (7 days, apparently)
-	DynamicIPList iplist(o.max_ips, 604799);
-
-	ipcsockfd = iplistsock.getFD();
-
-	unsigned long int ip;
-	char reply;
-	struct in_addr inaddr;
-
-	struct timeval sleep;  // used later on for a short sleep
-	sleep.tv_sec = 180;
-	sleep.tv_usec = 0;
-	struct timeval scopy;  // copy to use as select() can modify
-
-	int maxusage = 0;  // usage statistics:
-		// current & highest no. of concurrent IPs using the filter
-
-	double elapsed = 0;  // keep a 3 minute counter so license statistics
-	time_t before;   // are written even on busy networks (don't rely on timeout)
-
-	fd_set fdSet;  // our set of fds (only 1) that select monitors for us
-	fd_set fdcpy;  // select modifes the set so we need to use a copy
-	FD_ZERO(&fdSet);  // clear the set
-	FD_SET(ipcsockfd, &fdSet);  // add ipcsock to the set
-
-#ifdef DGDEBUG
-	std::cout << "ip listener entering select()" << std::endl;
-#endif
-	scopy = sleep;
-	// loop, essentially, for ever
-	while (true) {
-		fdcpy = fdSet;  // take a copy
-		before = time(NULL);
-		rc = select(ipcsockfd + 1, &fdcpy, NULL, NULL, &scopy);  // block until something happens
-		elapsed += difftime(time(NULL), before);
-#ifdef DGDEBUG
-		std::cout << "ip listener select returned: " << rc << ", 3 min timer: " << elapsed << ", scopy: " << scopy.tv_sec << " " << scopy.tv_usec << std::endl;
-#endif
-		if (rc < 0) {  // was an error
-			if (errno == EINTR) {
-				continue;  // was interupted by a signal so restart
-			}
-			if (logconerror) {
-				syslog(LOG_ERR, "ip ipc rc<0. (Ignorable)");
-			}
-			continue;
-		}
-		if (rc == 0 || elapsed >= 180) {
-#ifdef DGDEBUG
-			std::cout << "ips in list: " << iplist.getNumberOfItems() << std::endl;
-			std::cout << "purging old ip entries" << std::endl;
-			std::cout << "ips in list: " << iplist.getNumberOfItems() << std::endl;
-#endif
-			// should only get here after a timeout
-			iplist.purgeOldEntries();
-			// write usage statistics
-			int currusage = iplist.getNumberOfItems();
-			if (currusage > maxusage)
-				maxusage = currusage;
-			String usagestats;
-			usagestats += String(currusage) + "\n" + String(maxusage) + "\n";
-#ifdef DGDEBUG
-			std::cout << "writing usage stats: " << currusage << " " << maxusage << std::endl;
-#endif
-			int statfd = open(stat_location.c_str(), O_CREAT | O_WRONLY, S_IRUSR | S_IWUSR | S_IRGRP | S_IROTH);
-			if (statfd > 0) {
-				write(statfd, usagestats.toCharArray(), usagestats.length());
-			}
-			close(statfd);
-			// reset sleep timer
-			scopy = sleep;
-			elapsed = 0;
-			// only skip back to top of loop if there was a genuine timeout
-			if (rc == 0)
-				continue;
-		}
-		if (FD_ISSET(ipcsockfd, &fdcpy)) {
-#ifdef DGDEBUG
-			std::cout << "received an ip request" << std::endl;
-#endif
-			ipcpeersock = iplistsock.accept();
-			if (ipcpeersock->getFD() < 0) {
-				delete ipcpeersock;
-				if (logconerror) {
-#ifdef DGDEBUG
-					std::cout << "Error accepting ip ipc. (Ignorable)" << std::endl;
-#endif
-					syslog(LOG_ERR, "Error accepting ip ipc. (Ignorable)");
-				}
-				continue; // if the fd of the new socket < 0 there was error
-						  // but we ignore it as its not a problem
-			}
-			try {
-				rc = ipcpeersock->getLine(inbuff, 16, 3);  // throws on err
-			} catch (std::exception& e) {
-				delete ipcpeersock;
-				if (logconerror) {
-#ifdef DGDEBUG
-					std::cout << "Error reading ip ipc. (Ignorable)" << std::endl;
-#endif
-					syslog(LOG_ERR, "Error reading ip ipc. (Ignorable)");
-				}
-				continue;
-			}
-#ifdef DGDEBUG
-			std::cout << "recieved ip:" << inbuff << std::endl;
-#endif
-			inet_aton(inbuff, &inaddr);
-			ip = inaddr.s_addr;
-			// is the ip in our list? this also takes care of adding it if not.
-			if (iplist.inList(ip))
-				reply = 'Y';
-			else
-				reply = 'N';
-			try {
-				ipcpeersock->writeToSockete(&reply, 1, 0, 6);
-			} catch (std::exception& e) {
-				delete ipcpeersock;
-				if (logconerror) {
-#ifdef DGDEBUG
-					std::cout << "Error writing ip ipc. (Ignorable)" << std::endl;
-#endif
-					syslog(LOG_ERR, "Error writing ip ipc. (Ignorable)");
-				}
-				continue;
-			}
-			delete ipcpeersock;  // close the connection
-#ifdef DGDEBUG
-			std::cout << "ip list reply: " << reply << std::endl;
-#endif
-			continue;  // go back to listening
-		}
-	}
-	delete[] inbuff;
-	iplistsock.close();  // be nice and neat
-	return 1; // It is only possible to reach here with an error
+	return NULL;
 }
 
 
@@ -1412,28 +961,11 @@ int fc_controlit()
 	int rc;
 
 	o.lm.garbageCollect();
-
-	rc = pthread_mutex_init(&connmutex, NULL);
-	if (rc != 0)
-	{
-		if (!is_daemonised) {
-			std::cerr << "Error creating connection mutex: " << strerror(rc) << std::endl;
-		}
-		syslog(LOG_ERR, "Error creating connection mutex: %s", strerror(rc));
-		return 1;
-	}
-	rc = pthread_cond_init(&connevent, NULL);
-	if (rc != 0)
-	{
-		if (!is_daemonised) {
-			std::cerr << "Error creating connection condition: " << strerror(rc) << std::endl;
-		}
-		syslog(LOG_ERR, "Error creating connection condition: %s", strerror(rc));
-		return 1;
-	}
-
-	while (!connqueue.empty())
-		connqueue.pop();
+	if (o.max_ips > 0)
+		// Cache seen IPs for a week
+		ipcache = new DynamicIPList(o.max_ips, 604799);
+	if (o.url_cache_number > 0)
+		urlcache.setListSize(o.url_cache_number, o.url_cache_age);
 
 	// allocate & create our server sockets
 	serversocketcount = o.filter_ip.size();
@@ -1449,37 +981,6 @@ int fc_controlit()
 			}
 			syslog(LOG_ERR, "Error creating server socket %d", i);
 			return 1;
-		}
-	}
-
-
-	if (o.no_logger) {
-		loggersock.close();
-	} else {
-		loggersock.reset();
-	}
-	if (o.url_cache_number > 0) {
-		urllistsock.reset();
-	} else {
-		urllistsock.close();
-	}
-	if (o.max_ips > 0) {
-		iplistsock.reset();
-	} else {
-		iplistsock.close();
-	}
-
-	pid_t loggerpid = 0;  // to hold the logging process pid
-	pid_t urllistpid = 0;  // url cache process id
-	pid_t iplistpid = 0; // ip cache process id
-
-	if (!o.no_logger) {
-		if (loggersock.getFD() < 0) {
-			if (!is_daemonised) {
-				std::cerr << "Error creating ipc socket" << std::endl;
-			}
-			syslog(LOG_ERR, "%s", "Error creating ipc socket");
-			return 1; 
 		}
 	}
 
@@ -1523,10 +1024,11 @@ int fc_controlit()
 	} else {
 		// listen/bind to a port on any interface
 		if (serversockets.bindSingle(o.filter_port)) {
+			char errstr[1024];
 			if (!is_daemonised) {
-				std::cerr << "Error binding server socket: [" << o.filter_port << "] (" << strerror(errno) << ")" << std::endl;
+				std::cerr << "Error binding server socket: [" << o.filter_port << "] (" << strerror_r(errno, errstr, 1024) << ")" << std::endl;
 			}
-			syslog(LOG_ERR, "Error binding server socket: [%d] (%s)", o.filter_port, strerror(errno));
+			syslog(LOG_ERR, "Error binding server socket: [%d] (%s)", o.filter_port, strerror_r(errno, errstr, 1024));
 			return 1;
 		}
 	}
@@ -1542,68 +1044,6 @@ int fc_controlit()
 			return 1;  // seteuid failed for some reason so exit with error
 		}
 	//}
-
-	// Needs deleting if its there
-	unlink(o.ipc_filename.c_str());  // this would normally be in a -r situation.
-	// disabled as requested by Christopher Weimann <csw@k12hq.com>
-	// Fri, 11 Feb 2005 15:42:28 -0500
-	// re-enabled temporarily
-	unlink(o.urlipc_filename.c_str());
-	unlink(o.ipipc_filename.c_str());
-
-	if (!o.no_logger) {
-		if (loggersock.bind((char *) o.ipc_filename.c_str())) {	// bind to file
-			if (!is_daemonised) {
-				std::cerr << "Error binding ipc server file (try using the SysV to stop DansGuardian then try starting it again or doing an 'rm " << o.ipc_filename << "')." << std::endl;
-			}
-			syslog(LOG_ERR, "Error binding ipc server file (try using the SysV to stop DansGuardian then try starting it again or doing an 'rm %s').", o.ipc_filename.c_str());
-			return 1;
-		}
-		if (loggersock.listen(256)) {	// set it to listen mode with a kernel
-			// queue of 256 backlog connections
-			if (!is_daemonised) {
-				std::cerr << "Error listening to ipc server file" << std::endl;
-			}
-			syslog(LOG_ERR, "Error listening to ipc server file");
-			return 1;
-		}
-	}
-
-	if (o.url_cache_number > 0) {
-		if (urllistsock.bind((char *) o.urlipc_filename.c_str())) {	// bind to file
-			if (!is_daemonised) {
-				std::cerr << "Error binding urllistsock server file (try using the SysV to stop DansGuardian then try starting it again or doing an 'rm " << o.urlipc_filename << "')." << std::endl;
-			}
-			syslog(LOG_ERR, "Error binding urllistsock server file (try using the SysV to stop DansGuardian then try starting it again or doing an 'rm %s').", o.urlipc_filename.c_str());
-			return 1;
-		}
-		if (urllistsock.listen(256)) {	// set it to listen mode with a kernel
-			// queue of 256 backlog connections
-			if (!is_daemonised) {
-				std::cerr << "Error listening to url ipc server file" << std::endl;
-			}
-			syslog(LOG_ERR, "Error listening to url ipc server file");
-			return 1;
-		}
-	}
-
-	if (o.max_ips > 0) {
-		if (iplistsock.bind(o.ipipc_filename.c_str())) {	// bind to file
-			if (!is_daemonised) {
-				std::cerr << "Error binding iplistsock server file (try using the SysV to stop DansGuardian then try starting it again or doing an 'rm " << o.ipipc_filename << "')." << std::endl;
-			}
-			syslog(LOG_ERR, "Error binding iplistsock server file (try using the SysV to stop DansGuardian then try starting it again or doing an 'rm %s').", o.ipipc_filename.c_str());
-			return 1;
-		}
-		if (iplistsock.listen(256)) {	// set it to listen mode with a kernel
-			// queue of 256 backlog connections
-			if (!is_daemonised) {
-				std::cerr << "Error listening to ip ipc server file" << std::endl;
-			}
-			syslog(LOG_ERR, "Error listening to ip ipc server file");
-			return 1;
-		}
-	}
 
 	if (serversockets.listenAll(256)) {	// set it to listen mode with a kernel
 		// queue of 256 backlog connections
@@ -1625,7 +1065,8 @@ int fc_controlit()
 	// this has to be done after daemonise to ensure we get the correct PID.
 	rc = sysv_writepidfile(pidfilefd);  // also closes the fd
 	if (rc != 0) {
-		syslog(LOG_ERR, "Error writing to the dansguardian.pid file: %s", strerror(errno));
+		char errstr[1024];
+		syslog(LOG_ERR, "Error writing to the dansguardian.pid file: %s", strerror_r(errno, errstr, 1024));
 		return false;
 	}
 	// We are now a daemon so all errors need to go in the syslog, rather
@@ -1646,84 +1087,40 @@ int fc_controlit()
 		syslog(LOG_ERR, "%s", "Error ignoring HUP");
 		return (1);
 	}
-
-	// Next thing we need to do is to split into two processes - one to
-	// handle incoming TCP connections from the clients and one to handle
-	// incoming UDS ipc from our forked children.  This helps reduce
-	// bottlenecks by not having only one select() loop.
-	if (!o.no_logger) {
-
-		loggerpid = fork();  // make a child processes copy of self to be logger
-
-		if (loggerpid == 0) {	// ma ma!  i am the child
-			serversockets.deleteAll();  // we don't need our copy of this so close it
-			delete[] serversockfds;
-			urllistsock.close();  // we don't need our copy of this so close it
-			log_listener(o.log_location, o.logconerror, o.log_syslog);
-#ifdef DGDEBUG
-			std::cout << "Log listener exiting" << std::endl;
-#endif
-			_exit(0);  // is reccomended for child and daemons to use this instead
+	
+	// XXX Create logging thread and IP stats thread; kill them after main loop
+	pthread_t logthread;
+	if (o.ll > 0)
+	{
+		rc = pthread_create(&logthread, NULL, &logger_loop, NULL);
+		if (rc != 0) {
+			char errstr[1024];
+			syslog(LOG_ERR, "Unable to pthread_create() the logging thread: %s", strerror_r(rc, errstr, 1024));
+			return 1;
+		}
+	}
+	pthread_t ipstatsthread;
+	if (o.max_ips > 0)
+	{
+		rc = pthread_create(&ipstatsthread, NULL, &ipstats_loop, NULL);
+		if (rc != 0) {
+			char errstr[1024];
+			syslog(LOG_ERR, "Unable to pthread_create() the IP stats thread: %s", strerror_r(rc, errstr, 1024));
+			return 1;
 		}
 	}
 
-	// Same for URL list listener
-	if (o.url_cache_number > 0) {
-		urllistpid = fork();
-		if (urllistpid == 0) {	// ma ma!  i am the child
-			serversockets.deleteAll(); // we don't need our copy of this so close it
-			delete[] serversockfds;
-			if (!o.no_logger) {
-				loggersock.close();  // we don't need our copy of this so close it
-			}
-			url_list_listener(o.logconerror);
-#ifdef DGDEBUG
-			std::cout << "URL List listener exiting" << std::endl;
-#endif
-			_exit(0);  // is reccomended for child and daemons to use this instead
-		}
-	}
-
-	// and for IP list listener
-	if (o.max_ips > 0) {
-		iplistpid = fork();
-		if (iplistpid == 0) {	// ma ma!  i am the child
-			serversockets.deleteAll(); // we don't need our copy of this so close it
-			delete[] serversockfds;
-			if (!o.no_logger) {
-				loggersock.close();  // we don't need our copy of this so close it
-			}
-			ip_list_listener(o.stat_location, o.logconerror);
-#ifdef DGDEBUG
-			std::cout << "IP List listener exiting" << std::endl;
-#endif
-			_exit(0);  // is reccomended for child and daemons to use this instead
-		}
-	}
-
-	// I am the parent process here onwards.
+	// I am the parent thread here onwards.
 
 #ifdef DGDEBUG
-	std::cout << "Parent process created children" << std::endl;
+	std::cout << "Parent thread created children" << std::endl;
 #endif
 
-	if (o.url_cache_number > 0) {
-		urllistsock.close();  // we don't need our copy of this so close it
-	}
-	if (!o.no_logger) {
-		loggersock.close();  // we don't need our copy of this so close it
-	}
-	if (o.max_ips > 0) {
-		iplistsock.close();
-	}
-
+	// register sig_term as our SIGTERM handler
 	memset(&sa, 0, sizeof(sa));
-	if (!o.soft_restart) {
-		sa.sa_handler = &sig_term;  // register sig_term as our handler
-	} else {
-		sa.sa_handler = &sig_termsafe;
-	}
-	if (sigaction(SIGTERM, &sa, NULL)) {	// when the parent process gets a
+	sa.sa_handler = &sig_term;
+	if (sigaction(SIGTERM, &sa, NULL)) {
+		// when the parent thread gets a
 		// sigterm we need to kill our
 		// children which this will do,
 		// then we need to exit
@@ -1731,9 +1128,11 @@ int fc_controlit()
 		return (1);
 	}
 
+	// register sig_hup as our SIGHUP handler
 	memset(&sa, 0, sizeof(sa));
-	sa.sa_handler = &sig_hup;  // register sig_hup as our handler
-	if (sigaction(SIGHUP, &sa, NULL)) {	// when the parent process gets a
+	sa.sa_handler = &sig_hup;
+	if (sigaction(SIGHUP, &sa, NULL)) {
+		// when the parent thread gets a
 		// sighup we need to kill our
 		// children which this will do,
 		// then we need to read config
@@ -1741,9 +1140,11 @@ int fc_controlit()
 		return (1);
 	}
 
+	// register sig_usr1 as our handler
 	memset(&sa, 0, sizeof(sa));
-	sa.sa_handler = &sig_usr1;  // register sig_usr1 as our handler
-	if (sigaction(SIGUSR1, &sa, NULL)) {	// when the parent process gets a
+	sa.sa_handler = &sig_usr1;
+	if (sigaction(SIGUSR1, &sa, NULL)) {
+		// when the parent thread gets a
 		// sigusr1 we need to hup our
 		// children to make them exit
 		// then we need to read fg config
@@ -1761,13 +1162,13 @@ int fc_controlit()
 #endif
 
 #ifdef DGDEBUG
-	std::cout << "Parent process sig handlers done" << std::endl;
+	std::cout << "Parent thread sig handlers done" << std::endl;
 #endif
 
 	childrenids = new pthread_t[o.max_children];  // so when one exits we know who
 	childrenstates = new int[o.max_children];  // so we know what they're up to
 
-	pollfd pids[serversocketcount];
+	pollfd pollfds[serversocketcount];
 
 	int i;
 
@@ -1782,13 +1183,13 @@ int fc_controlit()
 
 	// store child ids...
 	for (i = 0; i < o.max_children; i++) {
-		childrenids[i] = -1;
+		childrenids[i] = 0;
 		childrenstates[i] = -1;
 	}
 	// ...and server fds
 	for (i = 0; i < serversocketcount; i++) {
-		pids[i].fd = serversockfds[i];
-		pids[i].events = POLLIN;
+		pollfds[i].fd = serversockfds[i];
+		pollfds[i].events = POLLIN;
 	}
 
 #ifdef DGDEBUG
@@ -1823,12 +1224,16 @@ int fc_controlit()
 
 	while (failurecount < 30 && !ttg && !reloadconfig) {
 
+		// XXX - This needs to be done differently, we can't pull the current config
+		// out from underneath the child threads.  Go over to a "watchdog" process model,
+		// a la censord?
+
 		// loop, essentially, for ever until 30
 		// consecutive errors in which case something
 		// is badly wrong.
 		// OR, its timetogo - got a sigterm
 		// OR, we need to exit to reread config
-		if (gentlereload) {
+		/*if (gentlereload) {
 #ifdef DGDEBUG
 			std::cout << "gentle reload activated" << std::endl;
 #endif
@@ -1865,35 +1270,39 @@ int fc_controlit()
 			}
 			flush_urlcache();
 			continue;
-		}
+		}*/
 
 		for (i = 0; i < serversocketcount; i++) {
-			pids[i].revents = 0;
+			pollfds[i].revents = 0;
 		}
-		rc = poll(pids, serversocketcount, 60 * 1000);
+		rc = poll(pollfds, serversocketcount, 60 * 1000);
 
 		if (rc < 0) {	// was an error
 #ifdef DGDEBUG
-			std::cout << "errno:" << errno << " " << strerror(errno) << std::endl;
+			char errstr[1024];
+			std::cout << "errno:" << errno << " " << strerror_r(errno, errstr, 1024) << std::endl;
 #endif
 
 			if (errno == EINTR) {
 				continue;  // was interupted by a signal so restart
 			}
 			if (o.logconerror)
-				syslog(LOG_ERR, "Error polling child process sockets: %s", strerror(errno));
+			{
+				char errstr[1024];
+				syslog(LOG_ERR, "Error polling child process sockets: %s", strerror_r(errno, errstr, 1024));
+			}
 			failurecount++;  // log the error/failure
 			continue;  // then continue with the looping
 		}
 
 		if (rc > 0) {
 			for (i = 0; i < serversocketcount; i++) {
-				if ((pids[i].revents & (POLLERR | POLLHUP | POLLNVAL)) > 0) {
+				if ((pollfds[i].revents & (POLLERR | POLLHUP | POLLNVAL)) > 0) {
 					ttg = true;
 					syslog(LOG_ERR, "Error with main listening socket.  Exiting.");
 					continue;
 				}
-				if ((pids[i].revents & POLLIN) > 0) {
+				if ((pollfds[i].revents & POLLIN) > 0) {
 					// socket ready to accept() a connection
 					failurecount = 0;  // something is clearly working so reset count
 					/*if (freechildren < 1 && numchildren < o.max_children) {
@@ -1971,6 +1380,17 @@ int fc_controlit()
 	// we might not giving enough time for defuncts to be created and then
 	// mopped but on exit or reload config they'll get mopped up
 	sleep(1);
+	
+	urlcache.flush();
+
+	while (!connqueue.empty())
+		connqueue.pop();
+
+	while (!logqueue.empty())
+	{
+		delete logqueue.front();
+		logqueue.pop();
+	}
 
 	delete[]childrenids;
 	delete[]childrenstates;
@@ -1985,8 +1405,11 @@ int fc_controlit()
 	std::cout << "Main parent process exiting." << std::endl;
 #endif
 
+	// be nice and neat
 	serversockets.deleteAll();
-	delete[] serversockfds; // be nice and neat
+	delete[] serversockfds;
+	delete ipcache;
+	ipcache = NULL;
 
 	memset(&sa, 0, sizeof(sa));
 	sa.sa_handler = SIG_DFL;
@@ -2025,27 +1448,6 @@ int fc_controlit()
 		syslog(LOG_ERR, "%s", "Error resetting signal for SIGPIPE");
 	}
 
-	if (sig_term_killall) {
-		struct sigaction sa, oldsa;
-		memset(&sa, 0, sizeof(sa));
-		sa.sa_handler = SIG_IGN;
-		sigaction(SIGTERM, &sa, &oldsa);  // ignore sigterm for us
-		kill(0, SIGTERM);  // send everyone in this process group a TERM
-		// which causes them to exit as the default action
-		// but it also seems to send itself a TERM
-		// so we ignore it
-		sigaction(SIGTERM, &oldsa, NULL);  // restore prev state
-	}
-
-	if (reloadconfig || ttg) {
-		if (!o.no_logger)
-			::kill(loggerpid, SIGTERM);  // get rid of logger
-		if (o.url_cache_number > 0)
-			::kill(urllistpid, SIGTERM);  // get rid of url cache
-		if (o.max_ips > 0)
-			::kill(iplistpid, SIGTERM); // get rid of iplist
-		return reloadconfig ? 2 : 0;
-	}
 	if (o.logconerror) {
 		syslog(LOG_ERR, "%s", "Main parent process exiting.");
 	}

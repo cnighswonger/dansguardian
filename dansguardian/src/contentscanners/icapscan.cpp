@@ -285,11 +285,12 @@ int icapinstance::scanFile(HTTPHeader * requestheader, HTTPHeader * docheader, c
 	lastmessage = lastvirusname = "";
 	int filefd = open(filename, O_RDONLY);
 	if (filefd < 0) {
+		char errstr[1024];
 #ifdef DGDEBUG
-		std::cerr << "Error opening file (" << filename << "): " << strerror(errno) << std::endl;
+		std::cerr << "Error opening file (" << filename << "): " << strerror_r(errno, errstr, 1024) << std::endl;
 #endif
 		lastmessage = "Error opening file to send to ICAP";
-		syslog(LOG_ERR, "Error opening file to send to ICAP: %s", strerror(errno));
+		syslog(LOG_ERR, "Error opening file to send to ICAP: %s", strerror_r(errno, errstr, 1024));
 		return DGCS_SCANERROR;
 	}
 	lseek(filefd, 0, SEEK_SET);

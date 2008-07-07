@@ -119,8 +119,8 @@ bool confirmname(pid_t p)
 	return true;
 }
 
-// kill process in the pidfile, optionally deleting the pidfile & URL cache/logger IPC sockets
-int sysv_kill(std::string pidfile, bool dounlink)
+// kill process in the pidfile
+int sysv_kill(std::string pidfile)
 {
 	pid_t p = getpid(pidfile);
 	if (p > 1) {
@@ -131,11 +131,6 @@ int sysv_kill(std::string pidfile, bool dounlink)
 				std::cerr << "Permission denied." << std::endl;
 			}
 			return 1;
-		}
-		if (dounlink) {
-			unlink(pidfile.c_str());
-			unlink(o.ipc_filename.c_str());
-			unlink(o.urlipc_filename.c_str());
 		}
 		return 0;
 	}

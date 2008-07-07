@@ -95,7 +95,8 @@ int CSPlugin::makeTempFile(String * filename)
 	strcpy(tempfilepatharray, tempfilepath.toCharArray());
 	if ((tempfilefd = mkstemp(tempfilepatharray)) < 1) {
 #ifdef DGDEBUG
-		std::cerr << "error creating cs temp " << tempfilepath << ": " << strerror(errno) << std::endl;
+		char errstr[1024];
+		std::cerr << "error creating cs temp " << tempfilepath << ": " << strerror_r(errno, errstr, 1024) << std::endl;
 #endif
 		syslog(LOG_ERR, "%s", "Could not create cs temp file.");
 		tempfilefd = -1;

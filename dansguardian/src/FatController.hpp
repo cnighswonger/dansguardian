@@ -37,4 +37,31 @@ int fc_controlit();
 // test whether we can connect to the parent proxy, optionally printing error messages
 bool fc_testproxy(std::string proxyip, int proxyport, bool report);
 
+struct logentry
+{
+	bool isexception;
+	String cat;
+	bool isnaughty;
+	String sweight;
+	String where;
+	String what;
+	String how;
+	String who;
+	String from;
+	int port;
+	bool wasscanned;
+	bool wasinfected;
+	bool contentmodified;
+	bool urlmodified;
+	bool headermodified;
+	String ssize;
+	int filtergroup;
+	int code;
+	bool cachehit;
+	String mimetype;
+	timeval t;
+	String clienthost;
+	String useragent;
+};
+
 #endif

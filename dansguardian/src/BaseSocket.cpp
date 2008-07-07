@@ -238,7 +238,8 @@ void BaseSocket::checkForInput(int timeout, bool honour_reloadconfig) throw(std:
 	t.tv_usec = 0;
 	if (selectEINTR(sck + 1, &fdSet, NULL, NULL, &t, honour_reloadconfig) < 1) {
 		std::string err("select() on input: ");
-		throw std::runtime_error(err + (errno ? strerror(errno) : "timeout"));
+		char errstr[1024];
+		throw std::runtime_error(err + (errno ? strerror_r(errno, errstr, 1024) : "timeout"));
 	}
 }
 
@@ -270,7 +271,8 @@ void BaseSocket::readyForOutput(int timeout, bool honour_reloadconfig) throw(std
 	t.tv_usec = 0;
 	if (selectEINTR(sck + 1, NULL, &fdSet, NULL, &t, honour_reloadconfig) < 1) {
 		std::string err("select() on output: ");
-		throw std::runtime_error(err + (errno ? strerror(errno) : "timeout"));
+		char errstr[1024];
+		throw std::runtime_error(err + (errno ? strerror_r(errno, errstr, 1024) : "timeout"));
 	}
 }
 
@@ -304,7 +306,8 @@ int BaseSocket::getLine(char *buff, int size, int timeout, bool honour_reloadcon
 		try {
 			checkForInput(timeout, honour_reloadconfig);
 		} catch(std::exception & e) {
-			throw std::runtime_error(std::string("Can't read from socket: ") + strerror(errno));  // on error
+			char errstr[1024];
+			throw std::runtime_error(std::string("Can't read from socket: ") + strerror_r(errno, errstr, 1024));  // on error
 		}
 		bufflen = recv(sck, buffer, 1024, 0);
 #ifdef DGDEBUG
@@ -314,7 +317,8 @@ int BaseSocket::getLine(char *buff, int size, int timeout, bool honour_reloadcon
 			if (errno == EINTR && (honour_reloadconfig ? !reloadconfig : true)) {
 				continue;
 			}
-			throw std::runtime_error(std::string("Can't read from socket: ") + strerror(errno));  // on error
+			char errstr[1024];
+			throw std::runtime_error(std::string("Can't read from socket: ") + strerror_r(errno, errstr, 1024));  // on error
 		}
 		//if socket closed or newline received...
 		if (bufflen == 0) {
@@ -345,7 +349,8 @@ void BaseSocket::writeString(const char *line) throw(std::exception)
 {
 	int l = strlen(line);
 	if (!writeToSocket(line, l, 0, timeout)) {
-		throw std::runtime_error(std::string("Can't write to socket: ") + strerror(errno));
+		char errstr[1024];
+		throw std::runtime_error(std::string("Can't write to socket: ") + strerror_r(errno, errstr, 1024));
 	}
 }
 
@@ -353,7 +358,8 @@ void BaseSocket::writeString(const char *line) throw(std::exception)
 void BaseSocket::writeToSockete(const char *buff, int len, unsigned int flags, int timeout, bool honour_reloadconfig) throw(std::exception)
 {
 	if (!writeToSocket(buff, len, flags, timeout, honour_reloadconfig)) {
-		throw std::runtime_error(std::string("Can't write to socket: ") + strerror(errno));
+		char errstr[1024];
+		throw std::runtime_error(std::string("Can't write to socket: ") + strerror_r(errno, errstr, 1024));
 	}
 }
 

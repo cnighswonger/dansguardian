@@ -96,20 +96,20 @@ public:
 	std::string access_denied_address;
 	std::string log_location;
 	std::string stat_location;
-	std::string ipc_filename;
-	std::string urlipc_filename;
-	std::string ipipc_filename;
+	//std::string ipc_filename;
+	//std::string urlipc_filename;
+	//std::string ipipc_filename;
 	std::string pid_filename;
 
 	bool no_daemon;
-	bool no_logger;
+	//bool no_logger;
 	bool log_syslog;
 	unsigned int max_logitem_length;
 	bool anonymise_logs;
 	bool log_ad_blocks;
 	bool log_timestamp;
 	bool log_user_agent;
-	bool soft_restart;
+	//bool soft_restart;
 
 #ifdef ENABLE_EMAIL
 	// Email notification patch by J. Gauthier

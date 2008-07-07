@@ -917,7 +917,8 @@ bool ListContainer::makeGraph(bool fqs)
 	current_graphdata_size = (GRAPHENTRYSIZE * ((data_length / 3) + 1)) + ROOTOFFSET;
 	realgraphdata = (int*) calloc(current_graphdata_size, sizeof(int));
 	if (realgraphdata == NULL) {
-		syslog(LOG_ERR, "Cannot allocate memory for phrase tree: %s", strerror(errno));
+		char errstr[1024];
+		syslog(LOG_ERR, "Cannot allocate memory for phrase tree: %s", strerror_r(errno, errstr, 1024));
 		return false;
 	}
 	graphitems++;
@@ -941,7 +942,8 @@ bool ListContainer::makeGraph(bool fqs)
 
 	realgraphdata = (int*) realloc(realgraphdata, sizeof(int) * ((GRAPHENTRYSIZE * graphitems) + ROOTOFFSET));
 	if (realgraphdata == NULL) {
-		syslog(LOG_ERR, "Cannot reallocate memory for phrase tree: %s", strerror(errno));
+		char errstr[1024];
+		syslog(LOG_ERR, "Cannot reallocate memory for phrase tree: %s", strerror_r(errno, errstr, 1024));
 		return false;
 	}
 
@@ -1353,7 +1355,8 @@ void ListContainer::graphAdd(String s, const int inx, int item)
 			int new_current_graphdata_size = (GRAPHENTRYSIZE * (graphitems + 256)) + ROOTOFFSET;
 			realgraphdata = (int*) realloc(realgraphdata, sizeof(int) * new_current_graphdata_size);
 			if (realgraphdata == NULL) {
-				syslog(LOG_ERR, "Cannot reallocate memory for phrase tree: %s", strerror(errno));
+				char errstr[1024];
+				syslog(LOG_ERR, "Cannot reallocate memory for phrase tree: %s", strerror_r(errno, errstr, 1024));
 				exit(1);
 			}
 			memset(realgraphdata + current_graphdata_size, 0, sizeof(int) * (new_current_graphdata_size - current_graphdata_size));
@@ -1414,7 +1417,8 @@ void ListContainer::graphAdd(String s, const int inx, int item)
 				int new_current_graphdata_size = (GRAPHENTRYSIZE * (graphitems + 256)) + ROOTOFFSET;
 				realgraphdata = (int*) realloc(realgraphdata, sizeof(int) * new_current_graphdata_size);
 				if (realgraphdata == NULL) {
-					syslog(LOG_ERR, "Cannot reallocate memory for phrase tree: %s", strerror(errno));
+					char errstr[1024];
+					syslog(LOG_ERR, "Cannot reallocate memory for phrase tree: %s", strerror_r(errno, errstr, 1024));
 					exit(1);
 				}
 				memset(realgraphdata + current_graphdata_size, 0, sizeof(int) * (new_current_graphdata_size - current_graphdata_size));
@@ -1687,14 +1691,15 @@ int ListContainer::getFileDate(const char *filename)
 	if (rc != 0) {
 		return -1;
 	}
-	struct tm *tmnow = localtime(&status.st_mtime);
+	struct tm tmnow;
+	localtime_r(&status.st_mtime, &tmnow);
 
-	int date = (tmnow->tm_year - 100) * 31536000;
-	date += tmnow->tm_mon * 2628000;
-	date += tmnow->tm_mday * 86400;
-	date += tmnow->tm_hour * 3600;
-	date += tmnow->tm_min * 60;
-	date += tmnow->tm_sec;
+	int date = (tmnow.tm_year - 100) * 31536000;
+	date += tmnow.tm_mon * 2628000;
+	date += tmnow.tm_mday * 86400;
+	date += tmnow.tm_hour * 3600;
+	date += tmnow.tm_min * 60;
+	date += tmnow.tm_sec;
 	return date;  // a nice int rather than a horrid struct
 }
 
@@ -1786,13 +1791,13 @@ bool ListContainer::isNow(int index)
 		return true;
 	}
 	time_t tnow;  // to hold the result from time()
-	struct tm *tmnow;  // to hold the result from localtime()
+	struct tm tmnow;  // to hold the result from localtime()
 	unsigned int hour, min, wday;
 	time(&tnow);  // get the time after the lock so all entries in order
-	tmnow = localtime(&tnow);  // convert to local time (BST, etc)
-	hour = tmnow->tm_hour;
-	min = tmnow->tm_min;
-	wday = tmnow->tm_wday;
+	localtime_r(&tnow, &tmnow);  // convert to local time (BST, etc)
+	hour = tmnow.tm_hour;
+	min = tmnow.tm_min;
+	wday = tmnow.tm_wday;
 	// wrap week to start on Monday
 	if (wday == 0) {
 		wday = 7;

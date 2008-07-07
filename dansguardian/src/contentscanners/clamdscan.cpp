@@ -118,7 +118,8 @@ int clamdinstance::scanFile(HTTPHeader * requestheader, HTTPHeader * docheader, 
 	// TODO? chmod can error out with EINTR, we may wish to ignore this
 	if (chmod(filename, S_IRGRP|S_IRUSR) != 0) {
 		lastmessage = "Error giving ClamD read access to temp file";
-		syslog(LOG_ERR, "Could not change file ownership to give ClamD read access: %s", strerror(errno));
+		char errstr[1024];
+		syslog(LOG_ERR, "Could not change file ownership to give ClamD read access: %s", strerror_r(errno, errstr, 1024));
 		return DGCS_SCANERROR;
 	};
 	String command("SCAN ");

@@ -33,6 +33,7 @@
 #include <unistd.h>
 #include <clamav.h>
 #include <fcntl.h>
+#include <cstdio>
 
 
 // GLOBALS
@@ -128,7 +129,8 @@ int clamavinstance::scanMemory(HTTPHeader * requestheader, HTTPHeader * docheade
 #ifdef HAVE_CLAMAV_SHM
 	if (use_shm) {
 		// use POSIX shared memory to get the FD
-		fname = tmpnam(NULL);
+		char name[L_tmpnam];
+		fname = tmpnam(name);
 		fname = fname.substr(fname.find_last_of('/'));
 		fd = shm_open(fname.c_str(), O_CREAT | O_EXCL | O_RDWR, S_IRUSR | S_IWUSR);
 	} else {

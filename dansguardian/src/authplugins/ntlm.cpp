@@ -228,9 +228,10 @@ int ntlminstance::identify(Socket& peercon, Socket& proxycon, HTTPHeader &h, std
 				if (f & WSWAP(0x0001)) {
 					iconv_t ic = iconv_open("UTF-8", "UTF-16LE");
 					if (ic == (iconv_t)-1) {
-						syslog(LOG_ERR, "NTLM - Cannot initialise conversion from UTF-16LE to UTF-8: %s", strerror(errno));
+						char errstr[1024];
+						syslog(LOG_ERR, "NTLM - Cannot initialise conversion from UTF-16LE to UTF-8: %s", strerror_r(errno, errstr, 1024));
 #ifdef DGDEBUG
-						std::cerr << "NTLM - Cannot initialise conversion from UTF-16LE to UTF-8: " << strerror(errno) << std::endl;
+						std::cerr << "NTLM - Cannot initialise conversion from UTF-16LE to UTF-8: " << strerror_r(errno, errstr, 1024) << std::endl;
 #endif
 						iconv_close(ic);
 						return -2;

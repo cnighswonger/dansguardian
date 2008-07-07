@@ -110,7 +110,8 @@ int kavdinstance::scanFile(HTTPHeader * requestheader, HTTPHeader * docheader, c
 	// the AV daemon's group membership.
 	// chmod can error with EINTR, ignore this?
 	if (chmod(filename, S_IRGRP|S_IRUSR) != 0) {
-		syslog(LOG_ERR, "Could not change file ownership to give kavd read access: %s", strerror(errno));
+		char errstr[1024];
+		syslog(LOG_ERR, "Could not change file ownership to give kavd read access: %s", strerror_r(errno, errstr, 1024));
 		return DGCS_SCANERROR;
 	};
 	String command("SCAN bPQRSTUW ");

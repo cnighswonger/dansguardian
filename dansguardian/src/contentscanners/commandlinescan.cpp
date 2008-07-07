@@ -251,14 +251,15 @@ int commandlineinstance::scanFile(HTTPHeader * requestheader, HTTPHeader * doche
 	// create socket pairs for child (scanner) process's stdout & stderr
 	int scannerstdout[2];
 	int scannerstderr[2];
+	char errstr[1024];
 	if (socketpair(AF_UNIX, SOCK_STREAM, 0, scannerstdout) == -1) {
 		lastmessage = "Cannot create sockets for communicating with scanner";
-		syslog(LOG_ERR, "Cannot open socket pair for command-line scanner's stdout: %s", strerror(errno));
+		syslog(LOG_ERR, "Cannot open socket pair for command-line scanner's stdout: %s", strerror_r(errno, errstr, 1024));
 		return DGCS_SCANERROR;
 	}
 	if (socketpair(AF_UNIX, SOCK_STREAM, 0, scannerstderr) == -1) {
 		lastmessage = "Cannot create sockets for communicating with scanner";
-		syslog(LOG_ERR, "Cannot open socket pair for command-line scanner's stderr: %s", strerror(errno));
+		syslog(LOG_ERR, "Cannot open socket pair for command-line scanner's stderr: %s", strerror_r(errno, errstr, 1024));
 		return DGCS_SCANERROR;
 	}
 	int f = fork();
@@ -276,11 +277,11 @@ int commandlineinstance::scanFile(HTTPHeader * requestheader, HTTPHeader * doche
 		arguments[numarguments] = (char*)filename;
 		execv(arguments[0], arguments);
 		// if we get here, an error occurred!
-		syslog(LOG_ERR, "Cannot exec command-line scanner (command \"%s %s\"): %s", progname.toCharArray(), filename, strerror(errno));
+		syslog(LOG_ERR, "Cannot exec command-line scanner (command \"%s %s\"): %s", progname.toCharArray(), filename, strerror_r(errno, errstr, 1024));
 		_exit(255);
 	} else if (f == -1) {
 		lastmessage = "Cannot launch scanner";
-		syslog(LOG_ERR, "Cannot fork to launch command-line scanner (command \"%s %s\"): %s", progname.toCharArray(), filename, strerror(errno));
+		syslog(LOG_ERR, "Cannot fork to launch command-line scanner (command \"%s %s\"): %s", progname.toCharArray(), filename, strerror_r(errno, errstr, 1024));
 		return DGCS_SCANERROR;
 	}
 
@@ -315,7 +316,7 @@ int commandlineinstance::scanFile(HTTPHeader * requestheader, HTTPHeader * doche
 	int returncode;
 	if (waitpid(f,&returncode,0) == -1) {
 		lastmessage = "Cannot get scanner return code";
-		syslog(LOG_ERR, "Cannot get command-line scanner return code: %s", strerror(errno));
+		syslog(LOG_ERR, "Cannot get command-line scanner return code: %s", strerror_r(errno, errstr, 1024));
 		return DGCS_SCANERROR;
 	}
 	returncode = WEXITSTATUS(returncode);

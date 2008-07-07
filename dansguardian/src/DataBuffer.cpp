@@ -182,10 +182,11 @@ int DataBuffer::getTempFileFD()
 	char *tempfilepatharray = new char[tempfilepath.length() + 1];
 	strcpy(tempfilepatharray, tempfilepath.toCharArray());
 	if ((tempfilefd = mkstemp(tempfilepatharray)) < 0) {
+		char errstr[1024];
 #ifdef DGDEBUG
-		std::cerr << "error creating temp " << tempfilepath << ": " << strerror(errno) << std::endl;
+		std::cerr << "error creating temp " << tempfilepath << ": " << strerror_r(errno, errstr, 1024) << std::endl;
 #endif
-		syslog(LOG_ERR, "Could not create temp file to store download for scanning: %s", strerror(errno));
+		syslog(LOG_ERR, "Could not create temp file to store download for scanning: %s", strerror_r(errno, errstr, 1024));
 		tempfilefd = -1;
 		tempfilepath = "";
 	} else {

@@ -102,14 +102,15 @@ int ListManager::getFileDate(const char *filename)
 	if (rc != 0) {
 		return -1;
 	}
-	struct tm *tmnow = localtime(&status.st_mtime);
+	struct tm tmnow;
+	localtime_r(&status.st_mtime, &tmnow);
 
-	int date = (tmnow->tm_year - 100) * 31536000;
-	date += tmnow->tm_mon * 2628000;
-	date += tmnow->tm_mday * 86400;
-	date += tmnow->tm_hour * 3600;
-	date += tmnow->tm_min * 60;
-	date += tmnow->tm_sec;
+	int date = (tmnow.tm_year - 100) * 31536000;
+	date += tmnow.tm_mon * 2628000;
+	date += tmnow.tm_mday * 86400;
+	date += tmnow.tm_hour * 3600;
+	date += tmnow.tm_min * 60;
+	date += tmnow.tm_sec;
 	return date;  // a nice int rather than a horrid struct
 }
 

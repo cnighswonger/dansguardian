@@ -39,6 +39,7 @@
 #include <locale.h>
 #include <sys/types.h>
 #include <sys/wait.h>
+#include <pthread.h>
 
 #ifdef __BENCHMARK
 #include <sys/times.h>
@@ -64,6 +65,22 @@ RegExp urldecode_re;
 // regexes used for embedded URL extraction by NaughtyFilter
 RegExp absurl_re, relurl_re;
 #endif
+
+// Condition & mutex for accepting new client connections in child threads
+pthread_cond_t connevent;
+pthread_mutex_t connmutex;
+
+// Similar for logger
+pthread_cond_t logevent;
+pthread_mutex_t logmutex;
+
+// Mutexes for accessing the URL and client IP caches
+pthread_mutex_t urlcachemutex;
+pthread_mutex_t ipcachemutex;
+
+// Mutex for calling gethostbyaddr()
+pthread_mutex_t rdnsmutex;
+
 
 // DECLARATIONS
 
@@ -122,13 +139,10 @@ int main(int argc, char *argv[])
 					return sysv_kill(o.pid_filename);
 				case 'Q':
 					read_config(configfile.c_str(), 0);
-					sysv_kill(o.pid_filename, false);
+					sysv_kill(o.pid_filename);
 					// give the old process time to die
 					while(sysv_amirunning(o.pid_filename))
 						sleep(1);
-					unlink(o.pid_filename.c_str());
-					unlink(o.ipc_filename.c_str());
-					unlink(o.urlipc_filename.c_str());
 					// remember to reset config before continuing
 					needreset = true;
 					break;
@@ -318,8 +332,9 @@ int main(int argc, char *argv[])
 	if ((sg = getgrnam(o.daemon_group_name.c_str())) != 0) {
 		o.proxy_group = sg->gr_gid;
 	} else {
-		syslog(LOG_ERR, "Unable to getgrnam(): %s", strerror(errno));
-		std::cerr << "Unable to getgrnam(): " << strerror(errno) << std::endl;
+		char errstr[1024];
+		syslog(LOG_ERR, "Unable to getgrnam(): %s", strerror_r(errno, errstr, 1024));
+		std::cerr << "Unable to getgrnam(): " << errstr << std::endl;
 		return 1;
 	}
 
@@ -348,7 +363,7 @@ int main(int argc, char *argv[])
 		// for some reason, so exit with error
 	}
 
-	if (!o.no_logger && !o.log_syslog) {
+	if ((o.ll > 0) && !o.log_syslog) {
 		std::ofstream logfiletest(o.log_location.c_str(), std::ios::app);
 		if (logfiletest.fail()) {
 			syslog(LOG_ERR, "Error opening/creating log file. (check ownership and access rights).");
@@ -370,6 +385,71 @@ int main(int argc, char *argv[])
 
 	// this is no longer a class, but the comment has been retained for historical reasons. PRA 03-10-2005
 	//FatController f;  // Thomas The Tank Engine
+	
+	char errstr[1024];
+	rc = pthread_mutex_init(&rdnsmutex, NULL);
+	if (rc != 0)
+	{
+		if (!is_daemonised) {
+			std::cerr << "Error creating reverse DNS mutex: " << strerror_r(rc, errstr, 1024) << std::endl;
+		}
+		syslog(LOG_ERR, "Error creating reverse DNS mutex: %s", strerror_r(rc, errstr, 1024));
+		return 1;
+	}
+	rc = pthread_mutex_init(&connmutex, NULL);
+	if (rc != 0)
+	{
+		if (!is_daemonised) {
+			std::cerr << "Error creating connection mutex: " << strerror_r(rc, errstr, 1024) << std::endl;
+		}
+		syslog(LOG_ERR, "Error creating connection mutex: %s", strerror_r(rc, errstr, 1024));
+		return 1;
+	}
+	rc = pthread_cond_init(&connevent, NULL);
+	if (rc != 0)
+	{
+		if (!is_daemonised) {
+			std::cerr << "Error creating connection condition: " << strerror_r(rc, errstr, 1024) << std::endl;
+		}
+		syslog(LOG_ERR, "Error creating connection condition: %s", strerror_r(rc, errstr, 1024));
+		return 1;
+	}
+	rc = pthread_mutex_init(&logmutex, NULL);
+	if (rc != 0)
+	{
+		if (!is_daemonised) {
+			std::cerr << "Error creating log mutex: " << strerror_r(rc, errstr, 1024) << std::endl;
+		}
+		syslog(LOG_ERR, "Error creating log mutex: %s", strerror_r(rc, errstr, 1024));
+		return 1;
+	}
+	rc = pthread_cond_init(&logevent, NULL);
+	if (rc != 0)
+	{
+		if (!is_daemonised) {
+			std::cerr << "Error creating log condition: " << strerror_r(rc, errstr, 1024) << std::endl;
+		}
+		syslog(LOG_ERR, "Error creating log condition: %s", strerror_r(rc, errstr, 1024));
+		return 1;
+	}
+	rc = pthread_mutex_init(&urlcachemutex, NULL);
+	if (rc != 0)
+	{
+		if (!is_daemonised) {
+			std::cerr << "Error creating URL cache mutex: " << strerror_r(rc, errstr, 1024) << std::endl;
+		}
+		syslog(LOG_ERR, "Error creating URL cache mutex: %s", strerror_r(rc, errstr, 1024));
+		return 1;
+	}
+	rc = pthread_mutex_init(&ipcachemutex, NULL);
+	if (rc != 0)
+	{
+		if (!is_daemonised) {
+			std::cerr << "Error creating IP cache mutex: " << strerror_r(rc, errstr, 1024) << std::endl;
+		}
+		syslog(LOG_ERR, "Error creating IP cache mutex: %s", strerror_r(rc, errstr, 1024));
+		return 1;
+	}
 
 	while (true) {
 		if (!fc_testproxy(o.proxy_ip, o.proxy_port, false)) {

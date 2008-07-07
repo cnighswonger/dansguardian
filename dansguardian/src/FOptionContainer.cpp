@@ -43,6 +43,7 @@
 
 extern bool is_daemonised;
 extern OptionContainer o;
+extern pthread_mutex_t rdnsmutex;
 
 
 // IMPLEMENTATION
@@ -54,6 +55,7 @@ std::deque<String> * ipToHostname(const char *ip)
 	struct in_addr address, **addrptr;
 	if (inet_aton(ip, &address)) {	// convert to in_addr
 		struct hostent *answer;
+		pthread_mutex_lock(&rdnsmutex);
 		answer = gethostbyaddr((char *) &address, sizeof(address), AF_INET);
 		if (answer) {	// sucess in reverse dns
 			result->push_back(String(answer->h_name));
@@ -61,6 +63,7 @@ std::deque<String> * ipToHostname(const char *ip)
 				result->push_back(String(inet_ntoa(**addrptr)));
 			}
 		}
+		pthread_mutex_unlock(&rdnsmutex);
 	}
 	return result;
 }

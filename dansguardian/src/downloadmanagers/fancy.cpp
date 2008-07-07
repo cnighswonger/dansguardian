@@ -24,7 +24,7 @@
 #include "../DownloadManager.hpp"
 #include "../OptionContainer.hpp"
 #include "../HTMLTemplate.hpp"
-#include "../ConnectionHandler.hpp"
+#include "../DynamicURLList.hpp"
 
 #include <syslog.h>
 #include <sys/time.h>
@@ -32,12 +32,15 @@
 #include <unistd.h>
 #include <iostream>
 #include <math.h>
+#include <pthread.h>
 
 
 // GLOBALS
 
 extern OptionContainer o;
 extern bool is_daemonised;
+extern DynamicURLList urlcache;
+extern pthread_mutex_t urlcachemutex;
 
 
 // DECLARATIONS
@@ -138,7 +141,9 @@ void fancydm::sendLink(Socket &peersock, String &linkurl, String &prettyurl)
 	peersock.writeString("</body></html>\n");
 	if (toobig_notdownloaded) {
 		// add URL to clean cache (for all groups)
-		addToClean(prettyurl, o.filter_groups + 1);
+		pthread_mutex_lock(&urlcachemutex);
+		urlcache.addEntry(prettyurl.c_str(), o.filter_groups + 1);
+		pthread_mutex_unlock(&urlcachemutex);
 	}
 }
 
@@ -331,7 +336,9 @@ int fancydm::in(DataBuffer * d, Socket * sock, Socket * peersock, class HTTPHead
 						peersock->writeString("<!-- force flush -->\r\n");
 						// add URL to clean cache (for all groups)
 						String url(requestheader->url());
-						addToClean(url, o.filter_groups + 1);
+						pthread_mutex_lock(&urlcachemutex);
+						urlcache.addEntry(url.c_str(), o.filter_groups + 1);
+						pthread_mutex_unlock(&urlcachemutex);
 #ifdef DGDEBUG
 						std::cout << "fancydm: file too big to be scanned, entering second stage of download" << std::endl;
 #endif

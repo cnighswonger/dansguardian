@@ -29,6 +29,9 @@
 #include "FDTunnel.hpp"
 #include "ImageContainer.hpp"
 #include "FDFuncs.hpp"
+#include "DynamicIPList.hpp"
+#include "DynamicURLList.hpp"
+#include "FatController.hpp"
 
 #ifndef HAVE_SYSLOG_H
 #include "syslog-repl.hpp"
@@ -46,6 +49,7 @@
 #include <fcntl.h>
 #include <sys/stat.h>
 #include <istream>
+#include <queue>
 
 #ifdef WIN32
 #define SHUT_WR SD_SEND
@@ -56,97 +60,16 @@
 extern OptionContainer o;
 extern bool is_daemonised;
 extern bool reloadconfig;
+extern DynamicIPList *ipcache;
+extern DynamicURLList urlcache;
+extern pthread_mutex_t urlcachemutex;
+extern pthread_mutex_t ipcachemutex;
+extern pthread_cond_t logevent;
+extern pthread_mutex_t logmutex;
+extern std::queue<logentry*> logqueue;
 
 
 // IMPLEMENTATION
-
-//
-// URL cache funcs
-//
-
-// check the URL cache to see if we've already flagged an address as clean
-bool wasClean(String &url, const int fg)
-{
-	if (reloadconfig)
-		return false;
-	UDSocket ipcsock;
-	if (ipcsock.getFD() < 0) {
-		syslog(LOG_ERR, "Error creating ipc socket to url cache");
-		return false;
-	}
-	if (ipcsock.connect(o.urlipc_filename.c_str()) < 0) {	// conn to dedicated url cach proc
-		syslog(LOG_ERR, "Error connecting via ipc to url cache: %s", strerror(errno));
-		ipcsock.close();
-		return false;
-	}
-	std::string myurl(" ");
-	myurl += url.after("://").toCharArray();
-	myurl[0] = fg+1;
-	myurl += "\n";
-#ifdef DGDEBUG
-	std::cout << "sending cache search request: " << myurl;
-#endif
-	try {
-		ipcsock.writeString(myurl.c_str());  // throws on err
-	}
-	catch(std::exception & e) {
-#ifdef DGDEBUG
-		std::cerr << "Exception writing to url cache" << std::endl;
-		std::cerr << e.what() << std::endl;
-#endif
-		syslog(LOG_ERR, "Exception writing to url cache");
-		syslog(LOG_ERR, "%s", e.what());
-	}
-	char reply;
-	try {
-		ipcsock.readFromSocket(&reply, 1, 0, 6);  // throws on err
-	}
-	catch(std::exception & e) {
-#ifdef DGDEBUG
-		std::cerr << "Exception reading from url cache" << std::endl;
-		std::cerr << e.what() << std::endl;
-#endif
-		syslog(LOG_ERR, "Exception reading from url cache");
-		syslog(LOG_ERR, "%s", e.what());
-	}
-	ipcsock.close();
-	return reply == 'Y';
-}
-
-// add a known clean URL to the cache
-void addToClean(String &url, const int fg)
-{
-	if (reloadconfig)
-		return;
-	UDSocket ipcsock;
-	if (ipcsock.getFD() < 0) {
-		syslog(LOG_ERR, "Error creating ipc socket to url cache");
-		return;
-	}
-	if (ipcsock.connect(o.urlipc_filename.c_str()) < 0) {	// conn to dedicated url cach proc
-		syslog(LOG_ERR, "Error connecting via ipc to url cache: %s", strerror(errno));
-#ifdef DGDEBUG
-		std::cout << "Error connecting via ipc to url cache: " << strerror(errno) << std::endl;
-#endif
-		return;
-	}
-	std::string myurl("g ");
-	myurl += url.after("://").toCharArray();
-	myurl[1] = fg+1;
-	myurl += "\n";
-	try {
-		ipcsock.writeString(myurl.c_str());  // throws on err
-	}
-	catch(std::exception & e) {
-#ifdef DGDEBUG
-		std::cerr << "Exception adding to url cache" << std::endl;
-		std::cerr << e.what() << std::endl;
-#endif
-		syslog(LOG_ERR, "Exception adding to url cache");
-		syslog(LOG_ERR, "%s", e.what());
-	}
-	ipcsock.close();
-}
 
 //
 // ConnectionHandler class
@@ -223,34 +146,12 @@ String ConnectionHandler::hashedCookie(String * url, int filtergroup, std::strin
 
 // when using IP address counting - have we got any remaining free IPs?
 bool ConnectionHandler::gotIPs(std::string ipstr) {
-	if (reloadconfig)
-		return false;
-	UDSocket ipcsock;
-	if (ipcsock.getFD() < 0) {
-		syslog(LOG_ERR, "Error creating ipc socket to IP cache");
-		return false;
-	}
-	// TODO: put in proper file name check
-	if (ipcsock.connect(o.ipipc_filename.c_str()) < 0) {  // connect to dedicated ip list proc
-		syslog(LOG_ERR, "Error connecting via ipc to IP cache: %s", strerror(errno));
-		return false;
-	}
-	char reply;
-	ipstr += '\n';
-	try {
-		ipcsock.writeToSockete(ipstr.c_str(), ipstr.length(), 0, 6);
-		ipcsock.readFromSocket(&reply, 1, 0, 6);  // throws on err
-	}
-	catch (std::exception& e) {
-#ifdef DGDEBUG
-		std::cerr << "Exception with IP cache" << std::endl;
-		std::cerr << e.what() << std::endl;
-#endif
-		syslog(LOG_ERR, "Exception with IP cache");
-		syslog(LOG_ERR, "%s", e.what());
-	}
-	ipcsock.close();
-	return reply == 'Y';
+	in_addr inaddr;
+	inet_aton(ipstr.c_str(), &inaddr);
+	pthread_mutex_lock(&ipcachemutex);
+	bool result = ipcache->inList(inaddr.s_addr);
+	pthread_mutex_unlock(&ipcachemutex);
+	return result;
 }
 
 // send a file to the client - used during bypass of blocked downloads
@@ -1315,7 +1216,8 @@ void ConnectionHandler::handleConnection(Socket &peerconn, String &ip)
 						// probably, since it uses a "magic" status code in the cache; easier than coding yet another hash type.
 
 						if (o.url_cache_number > 0 && !(!o.scan_clean_cache && runav) && !docheader.authRequired()) {
-							if (wasClean(urld, filtergroup)) {
+							pthread_mutex_lock(&urlcachemutex);
+							if (urlcache.inURLList(urld.c_str(), filtergroup)) {
 								wasclean = true;
 								cachehit = true;
 								runav = false;
@@ -1323,6 +1225,7 @@ void ConnectionHandler::handleConnection(Socket &peerconn, String &ip)
 								std::cout << "url was clean skipping content and AV checking" << std::endl;
 #endif
 							}
+							pthread_mutex_unlock(&urlcachemutex);
 						}
 						// despite the debug note above, we do still go through contentFilter for cached non-exception HTML,
 						// as content replacement rules need to be applied.
@@ -1368,7 +1271,9 @@ void ConnectionHandler::handleConnection(Socket &peerconn, String &ip)
 					&& (docheader.isContentType("text") || (runav && o.scan_clean_cache))
 					&& header.requestType() == "GET" && !docheader.authRequired())
 				{
-					addToClean(urld, filtergroup);
+					pthread_mutex_lock(&urlcachemutex);
+					urlcache.addEntry(urld.c_str(), filtergroup);
+					pthread_mutex_unlock(&urlcachemutex);
 				}
 			}
 
@@ -1562,8 +1467,6 @@ void ConnectionHandler::doLog(std::string &who, std::string &from, String &where
 		return;
 	}
 
-	std::string data, cr("\n");
-
 	if ((isexception && (o.log_exception_hits == 2))
 		|| isnaughty || o.ll == 3 || (o.ll == 2 && istext))
 	{
@@ -1617,34 +1520,37 @@ void ConnectionHandler::doLog(std::string &who, std::string &from, String &where
 		// Original patch by J. Gauthier
 
 #ifdef DGDEBUG
-		std::cout << "Building raw log data string... ";
+		std::cout << "Building raw log data struct... ";
 #endif
 
-		data = String(isexception)+cr;
-		data += ( cat ? (*cat) + cr : cr);
-		data += String(isnaughty)+cr;
-		data += String(naughtiness)+cr;
-		data += where+cr;
-		data += what+cr;
-		data += how+cr;
-		data += who+cr;
-		data += from+cr;
-		data += String(port)+cr;
-		data += String(wasscanned)+cr;
-		data += String(wasinfected)+cr;
-		data += String(contentmodified)+cr;
-		data += String(urlmodified)+cr;
-		data += String(headermodified)+cr;
-		data += String(size)+cr;
-		data += String(filtergroup)+cr;
-		data += String(code)+cr;
-		data += String(cachehit)+cr;
-		data += String(mimetype)+cr; 
-		data += String((*thestart).tv_sec)+cr;
-		data += String((*thestart).tv_usec)+cr;
-		data += (clienthost ? (*clienthost) + cr : cr);
-		if (o.log_user_agent)
-			data += (reqheader ? reqheader->userAgent() + cr : cr);
+		logentry *data = new logentry;
+
+		data->isexception = isexception;
+		if (cat)
+			data->cat = (*cat);
+		data->isnaughty = isnaughty;
+		data->sweight = String(naughtiness);
+		data->where = where;
+		data->what = what;
+		data->how = how;
+		data->who = who;
+		data->from = from;
+		data->port = port;
+		data->wasscanned = wasscanned;
+		data->wasinfected = wasinfected;
+		data->contentmodified = contentmodified;
+		data->urlmodified = urlmodified;
+		data->headermodified = headermodified;
+		data->ssize = String(size);
+		data->filtergroup = filtergroup;
+		data->code = code;
+		data->cachehit = cachehit;
+		data->mimetype = mimetype; 
+		data->t = *thestart;
+		if (clienthost)
+			data->clienthost = (*clienthost);
+		if (o.log_user_agent && reqheader)
+			data->useragent = reqheader->userAgent();
 
 #ifdef DGDEBUG   
 		std::cout << "...built" << std::endl;
@@ -1652,33 +1558,11 @@ void ConnectionHandler::doLog(std::string &who, std::string &from, String &where
 
 		delete newcat;
 
-		// connect to dedicated logging proc
-		UDSocket ipcsock;
-		if (ipcsock.getFD() < 0) {
-			if (!is_daemonised)
-				std::cout << "Error creating IPC socket to log" << std::endl;
-			syslog(LOG_ERR, "Error creating IPC socket to log");
-			return;
-		}
-		if (ipcsock.connect(o.ipc_filename.c_str()) < 0) {
-			if (!is_daemonised)
-				std::cout << "Error connecting via IPC socket to log: " << strerror(errno) << std::endl;
-			syslog(LOG_ERR, "Error connecting via IPC socket to log: %s", strerror(errno));
-			ipcsock.close();
-			return;
-		}
-
-		// send data
-		try {
-			ipcsock.setTimeout(10);
-			ipcsock.writeString(data.c_str());
-			ipcsock.close();
-		} catch (std::exception &e) {
-			syslog(LOG_INFO, "Could not write to logging process: %s", e.what());
-#ifdef DGDEBUG
-			std::cout << "Could not write to logging process: " << e.what() << std::endl;
-#endif
-		}
+		// Send to the logging thread to deal with
+		pthread_mutex_lock(&logmutex);
+		logqueue.push(data);
+		pthread_cond_signal(&logevent);
+		pthread_mutex_unlock(&logmutex);
 	}
 }
 

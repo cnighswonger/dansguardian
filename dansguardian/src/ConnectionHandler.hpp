@@ -32,11 +32,6 @@
 
 // DECLARATIONS
 
-// check the URL cache to see if we've already flagged an address as clean
-bool wasClean(String &url, const int fg);
-// add a known clean URL to the cache
-void addToClean(String &url, const int fg);
-
 // the ConnectionHandler class - handles filtering, scanning, and blocking of
 // data passed between a client and the external proxy.
 class ConnectionHandler

@@ -31,9 +31,8 @@
 
 // DECLARATIONS
 
-// Kill the process specified in the given pidfile, optionally deleting the pidfile while we're at it,
-// along with the UNIX domain sockets for the old logger & url cache
-int sysv_kill(std::string pidfile, bool dounlink = true);
+// Kill the process specified in the given pidfile
+int sysv_kill(std::string pidfile);
 
 // show PID of running DG process
 int sysv_showpid(std::string pidfile);

@@ -89,7 +89,9 @@ void syslog(int priority, const char* format, ...)
 
 	std::ostringstream preamble;
 	time_t now = time(NULL);
-	preamble << ctime(&now);
+	char cbuf[26];
+	ctime_r(&now, cbuf);
+	preamble << cbuf;
 	if (openlog_ident)
 		preamble << openlog_ident;
 
