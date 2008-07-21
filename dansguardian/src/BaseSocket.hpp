@@ -25,6 +25,7 @@
 
 #include <string>
 #include <exception>
+#include <set>
 
 #ifndef WIN32
 #include <sys/types.h>
@@ -32,25 +33,33 @@
 #include <sys/un.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
+typedef int SOCKET;
+#define socket_errno errno
+#define SOCKET_EINTR EINTR
+#define SOCKOPT void*
+#define SOCKET int
 #else
 #include <winsock2.h>
 typedef int socklen_t;
+#define socket_errno WSAGetLastError()
+#define SOCKET_EINTR WSAEINTR
+#define SOCKOPT char*
 #endif
 
-int selectEINTR(int numfds, fd_set * readfds, fd_set * writefds, fd_set * exceptfds, struct timeval *timeout, bool honour_reloadconfig = false);
+int selectEINTR(std::set<SOCKET> *readfds, std::set<SOCKET> *writefds, std::set<SOCKET> *exceptfds, struct timeval *timeout, bool honour_reloadconfig = false);
 
 class BaseSocket
 {
 public:
 	// create socket from FD - must be overridden to clear the relevant address structs in derived classes
-	BaseSocket(int fd);
+	BaseSocket(SOCKET fd);
 
 	// make a socket a listening server socket
 	int listen(int queue);
 
 	// grab socket's FD, e.g. for passing to selectEINTR
 	// use sparingly, and DO NOT do manual data transfer with it
-	int getFD();
+	SOCKET getFD();
 	
 	// close socket
 	void close();
@@ -93,7 +102,8 @@ protected:
 	// length of address of other end of socket (e.g. size of sockaddr_in or sockaddr_un)
 	socklen_t peer_adr_length;
 	// socket FD
-	int sck;
+	SOCKET sck;
+	bool sckinuse;
 	// internal buffer
 	char buffer[1024];
 	int buffstart;
@@ -105,7 +115,7 @@ protected:
 	virtual ~BaseSocket();
 	
 	// performs accept(). call from derived classes' accept method
-	int baseAccept(struct sockaddr *acc_adr, socklen_t *acc_adr_length);
+	SOCKET baseAccept(struct sockaddr *acc_adr, socklen_t *acc_adr_length);
 	// closes socket & resets timeout to default - call from derived classes' reset method
 	void baseReset();
 };

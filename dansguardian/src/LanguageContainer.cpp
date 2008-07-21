@@ -30,12 +30,17 @@
 #include <cstdlib>
 #include <cstdio>
 #include <unistd.h>
-#include <syslog.h>
 #include <algorithm>
 #include <iostream>
 #include <fstream>
 #include <sys/stat.h>
 #include <sys/time.h>
+
+#ifdef WIN32
+#include "../lib/syslog.h"
+#else
+#include <syslog.h>
+#endif
 
 
 // GLOBALS

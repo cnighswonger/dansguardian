@@ -25,7 +25,6 @@
 #endif
 #include "DynamicIPList.hpp"
 
-#include <syslog.h>
 #include <sys/stat.h>
 #include <sys/time.h>
 #include <time.h>
@@ -33,6 +32,12 @@
 
 #ifdef DGDEBUG
 #include <iostream>
+#endif
+
+#ifdef WIN32
+#include "../lib/syslog.h"
+#else
+#include <syslog.h>
 #endif
 
 

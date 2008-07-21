@@ -28,14 +28,18 @@
 	#include "dgconfig.h"
 #endif
 
+#include <sys/types.h>
 #include <ctime>
+#ifndef HAVE_CTIME_R
+#include "ctime_r.h"
+#endif
 #include <cstdarg>
 #include <cstdio>
 #include <iostream>
 #include <sstream>
 #include <fstream>
 
-#include "syslog-repl.hpp"
+#include "syslog.h"
 
 #ifdef WIN32
 #include <process.h>

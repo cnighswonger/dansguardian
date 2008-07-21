@@ -26,13 +26,18 @@
 #include "../HTMLTemplate.hpp"
 #include "../DynamicURLList.hpp"
 
-#include <syslog.h>
 #include <sys/time.h>
 #include <sys/types.h>
 #include <unistd.h>
 #include <iostream>
 #include <math.h>
 #include <pthread.h>
+
+#ifdef WIN32
+#include "../../lib/syslog.h"
+#else
+#include <syslog.h>
+#endif
 
 
 // GLOBALS

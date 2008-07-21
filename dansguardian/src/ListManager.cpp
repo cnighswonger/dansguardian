@@ -26,9 +26,18 @@
 #endif
 #include "ListManager.hpp"
 
-#include <syslog.h>
 #include <ctime>
 #include <sys/stat.h>
+
+#ifdef WIN32
+#include "../lib/syslog.h"
+#else
+#include <syslog.h>
+#endif
+
+#ifndef HAVE_LOCALTIME_R
+#include "../lib/localtime_r.h"
+#endif
 
 
 // GLOBALS

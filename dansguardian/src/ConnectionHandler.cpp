@@ -24,7 +24,6 @@
 #endif
 #include "ConnectionHandler.hpp"
 #include "DataBuffer.hpp"
-#include "UDSocket.hpp"
 #include "Auth.hpp"
 #include "FDTunnel.hpp"
 #include "ImageContainer.hpp"
@@ -33,8 +32,12 @@
 #include "DynamicURLList.hpp"
 #include "FatController.hpp"
 
-#ifndef HAVE_SYSLOG_H
-#include "syslog-repl.hpp"
+#ifndef HAVE_INET_ATON
+#include "../lib/inet_aton.h"
+#endif
+
+#ifdef WIN32
+#include "../lib/syslog.h"
 #else
 #include <syslog.h>
 #endif
@@ -50,6 +53,7 @@
 #include <sys/stat.h>
 #include <istream>
 #include <queue>
+#include <pthread.h>
 
 #ifdef WIN32
 #define SHUT_WR SD_SEND
@@ -1433,8 +1437,8 @@ void ConnectionHandler::handleConnection(Socket &peerconn, String &ip)
 #endif
 		int fd = peerconn.getFD();
 		shutdown(fd, SHUT_WR);
-		char buff[2];
-		peerconn.readFromSocket(buff, 2, 0, 5);
+		/*char buff[2];
+		peerconn.readFromSocket(buff, 2, 0, 5);*/
 	}
 	catch(std::exception & e) {
 		return;
@@ -2120,14 +2124,12 @@ void ConnectionHandler::contentFilter(HTTPHeader *docheader, HTTPHeader *header,
 
 #ifdef DGDEBUG
 			std::cout << "finished running AV" << std::endl;
-			system("date");
 #endif
 		}
 #ifdef DGDEBUG
 		else if (runav) {
 			std::cout << "content length large so skipping content scanning (virus) filtering" << std::endl;
 		}
-		system("date");
 #endif
 		if (!checkme->isItNaughty && !checkme->isException && !isbypass && (dblen <= o.max_content_filter_size)
 			&& !docheader->authRequired() && docheader->isContentType("text"))
@@ -2176,7 +2178,6 @@ void ConnectionHandler::contentFilter(HTTPHeader *docheader, HTTPHeader *header,
 			std::cout << "Already flagged as naughty";
 		std::cout << std::endl;
 	}
-	system("date");
 #endif
 
 	if (contentmodified) {	// this would not include infected/cured files

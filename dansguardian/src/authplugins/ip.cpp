@@ -27,11 +27,20 @@
 #include "../RegExp.hpp"
 #include "../OptionContainer.hpp"
 
-#include <syslog.h>
 #include <algorithm>
 #include <unistd.h>
 #include <iostream>
 #include <fstream>
+
+#ifndef HAVE_INET_ATON
+#include "../lib/inet_aton.h"
+#endif
+
+#ifdef WIN32
+#include "../../lib/syslog.h"
+#else
+#include <syslog.h>
+#endif
 
 
 // GLOBALS

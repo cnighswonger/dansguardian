@@ -29,11 +29,12 @@
 
 #include <iostream>
 #include <fstream>
-#include <netdb.h>		// for gethostby
-#include <netinet/in.h>		// for address structures
-#include <arpa/inet.h>		// for inet_aton()
-#include <sys/socket.h>
+
+#ifdef WIN32
+#include "../lib/syslog.h"
+#else
 #include <syslog.h>
+#endif
 
 #include <unistd.h>		// checkme: remove?
 

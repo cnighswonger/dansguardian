@@ -33,12 +33,22 @@
 #include "FDTunnel.hpp"
 
 #include <unistd.h>
-#include <sys/socket.h>
 #include <exception>
 #include <time.h>
-#include <syslog.h>
 #include <cerrno>
 #include <zlib.h>
+
+#ifdef WIN32
+#include "../lib/syslog.h"
+#else
+#include <syslog.h>
+#endif
+
+#ifndef WIN32
+#include <sys/socket.h>
+#else
+#include <winsock2.h>
+#endif
 
 
 // GLOBALS

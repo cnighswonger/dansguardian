@@ -29,14 +29,25 @@
 #include "FOptionContainer.hpp"
 #include "OptionContainer.hpp"
 
-#include <syslog.h>
 #include <iostream>
 #include <fstream>
+
+#ifndef WIN32
+#include <syslog.h>
 #include <netdb.h>		// for gethostby
 #include <netinet/in.h>		// for address structures
 #include <arpa/inet.h>		// for inet_aton()
 #include <sys/socket.h>
-//#include <unistd.h>  // remove
+#else
+#include <winsock2.h>
+#include "../lib/syslog.h"
+#endif
+
+#ifndef HAVE_INET_ATON
+#include "../lib/inet_aton.h"
+#endif
+
+#include <pthread.h>
 
 
 // GLOBALS

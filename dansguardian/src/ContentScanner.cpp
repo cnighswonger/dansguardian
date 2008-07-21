@@ -31,9 +31,23 @@
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <fcntl.h>
-#include <syslog.h>
 #include <cerrno>
 
+#ifdef WIN32
+#include "../lib/syslog.h"
+#else
+#include <syslog.h>
+#endif
+
+#ifndef HAVE_MKSTEMP
+#include "../lib/mkstemp.h"
+#endif
+
+#ifdef DGDEBUG
+#ifndef HAVE_STRERROR_R
+#include "../lib/strerror_r.h"
+#endif
+#endif
 
 // GLOBALS
 extern bool is_daemonised;

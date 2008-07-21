@@ -33,10 +33,14 @@
 #include <cstdlib>
 #include <cstdio>
 #include <unistd.h>
-#include <syslog.h>
-//#include <istream>
 #include <iostream>
 #include <fstream>
+
+#ifdef WIN32
+#include "../lib/syslog.h"
+#else
+#include <syslog.h>
+#endif
 
 
 // GLOBALS

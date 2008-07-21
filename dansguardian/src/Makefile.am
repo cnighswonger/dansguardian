@@ -1,3 +1,5 @@
+AUTOMAKE_OPTIONS = subdir-objects
+
 clean_SUBDIRS= . downloadmanagers contentscanners authplugins
 
 # A MASSIVE thank you to Lawrence Manning for pointing out the
@@ -70,17 +72,21 @@ else
 NTLMAUTH_SOURCE =
 endif
 
-if HAVE_SYSLOG_H
-SYSLOG_SOURCE =
+if WIN32
+UDSOCKET_SOURCE =
+SYSV_SOURCE =
+REPLACEMENT_SOURCE = ../lib/ctime_r.cpp ../lib/inet_aton.cpp ../lib/strerror_r.cpp ../lib/mkstemp.cpp ../lib/localtime_r.cpp ../lib/syslog.cpp
 else
-SYSLOG_SOURCE = syslog-repl.cpp
+UDSOCKET_SOURCE = UDSocket.cpp
+SYSV_SOURCE = SysV.cpp
+REPLACEMENT_SOURCE =
 endif
 
 sbin_PROGRAMS = dansguardian 
 
 dansguardian_CXXFLAGS = $(PCRE_CFLAGS) $(PTHREAD_CFLAGS) $(AM_CXXFLAGS)
 dansguardian_LDFLAGS = $(PTHREAD_LIBS) $(AM_LDFLAGS)
-dansguardian_LDADD = $(PCRE_LIBS) $(PTHREAD_LIBS) $(AM_LIBS)
+dansguardian_LDADD = $(LIBOBJS) $(PCRE_LIBS) $(PTHREAD_LIBS) $(AM_LIBS)
 dansguardian_CPPFLAGS = -D__CONFFILE='"$(DGCONFFILE)"' \
 			-D__LOGLOCATION='"$(DGLOGLOCATION)/"' \
 			-D__PIDDIR='"$(DGPIDDIR)"' \
@@ -88,8 +94,7 @@ dansguardian_CPPFLAGS = -D__CONFFILE='"$(DGCONFFILE)"' \
 			-D__PROXYGROUP='"$(DGPROXYGROUP)"' \
 			-D__CONFDIR='"$(DGCONFDIR)"' \
 			$(AM_CPPFLAGS)
-dansguardian_SOURCES = $(SYSLOG_SOURCE) \
-                       String.cpp \
+dansguardian_SOURCES = String.cpp \
                        FDTunnel.cpp \
                        ConnectionHandler.cpp \
                        DataBuffer.cpp \
@@ -100,8 +105,8 @@ dansguardian_SOURCES = $(SYSLOG_SOURCE) \
 		       BaseSocket.cpp \
                        Socket.cpp \
                        FatController.cpp \
-                       UDSocket.cpp \
-                       SysV.cpp \
+                       $(UDSOCKET_SOURCE) \
+                       $(SYSV_SOURCE) \
                        ListContainer.cpp \
                        Auth.cpp \
                        HTMLTemplate.cpp \
@@ -125,4 +130,5 @@ dansguardian_SOURCES = $(SYSLOG_SOURCE) \
 		       $(DEFAULTDM_SOURCE) $(FANCYDM_SOURCE) \
 		       $(TRICKLEDM_SOURCE) $(PROXYAUTH_SOURCE) \
 		       $(IDENTAUTH_SOURCE) $(IPAUTH_SOURCE) \
-		       $(NTLMAUTH_SOURCE) $(DIGESTAUTH_SOURCE)
+		       $(NTLMAUTH_SOURCE) $(DIGESTAUTH_SOURCE) \
+		       $(REPLACEMENT_SOURCE)

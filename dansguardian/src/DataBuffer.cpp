@@ -26,7 +26,20 @@
 #include "HTTPHeader.hpp"
 #include "OptionContainer.hpp"
 
+#ifdef WIN32
+#include "../lib/syslog.h"
+#else
 #include <syslog.h>
+#endif
+
+#ifndef HAVE_STRERROR_R
+#include "../lib/strerror_r.h"
+#endif
+
+#ifndef HAVE_MKSTEMP
+#include "../lib/mkstemp.h"
+#endif
+
 #include <algorithm>
 #include <cstdlib>
 #include <unistd.h>

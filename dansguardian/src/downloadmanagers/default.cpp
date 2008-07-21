@@ -26,10 +26,15 @@
 #include "../DownloadManager.hpp"
 #include "../OptionContainer.hpp"
 
-#include <syslog.h>
 #include <sys/time.h>
 #include <sys/types.h>
 #include <unistd.h>
+
+#ifdef WIN32
+#include "../../lib/syslog.h"
+#else
+#include <syslog.h>
+#endif
 
 
 // GLOBALS

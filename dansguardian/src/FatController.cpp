@@ -24,25 +24,40 @@
 	#include "dgconfig.h"
 #endif
 
-#include <syslog.h>
 #include <csignal>
 #include <ctime>
 #include <sys/stat.h>
-#include <pwd.h>
 #include <cerrno>
 #include <unistd.h>
 #include <fcntl.h>
 #include <fstream>
 #include <sys/time.h>
-#include <sys/poll.h>
 #include <istream>
 #include <map>
 #include <sys/types.h>
-#include <sys/wait.h>
-#include <sys/select.h>
 #include <pthread.h>
-#include <memory>
 #include <queue>
+
+#ifdef WIN32
+#include "../lib/syslog.h"
+#else
+#include <syslog.h>
+#endif
+
+#ifndef HAVE_STRERROR_R
+#include "../lib/strerror_r.h"
+#endif
+
+#ifdef HAVE_POLL_H
+#include <poll.h>
+#endif
+
+#ifndef WIN32
+#include <sys/select.h>
+#include <sys/wait.h>
+#else
+#include <winsock2.h>
+#endif
 
 #ifdef ENABLE_SEGV_BACKTRACE
 #include <execinfo.h>
@@ -54,7 +69,6 @@
 #include "DynamicIPList.hpp"
 #include "String.hpp"
 #include "SocketArray.hpp"
-#include "UDSocket.hpp"
 #include "SysV.hpp"
 
 
@@ -99,6 +113,7 @@ DynamicURLList urlcache;
 // DECLARATIONS
 
 // Signal handlers
+#ifndef WIN32
 extern "C"
 {
 	void sig_chld(int signo);
@@ -109,9 +124,13 @@ extern "C"
 	void sig_segv(int signo); // Generate a backtrace on segfault
 #endif
 }
+#endif
 
+#ifndef WIN32
 // fork off into background
 bool daemonise();
+#endif
+
 // create specified amount of child processes
 int prefork(int num);
 
@@ -129,17 +148,21 @@ void deletechild(pthread_t child_id);
 // clean up any dead child processes (calls deletechild with exit values)
 void mopup_afterkids();
 
+#ifndef WIN32
 // tidy up resources for a brand new child process (uninstall signal handlers, delete copies of unnecessary data, etc.)
 void tidyup_forchild();
+#endif
 
 // send SIGTERM or SIGHUP to call children
 void kill_allchildren();
+#ifndef WIN32
 void hup_allchildren();
-
+#endif
 
 
 // IMPLEMENTATION
 
+#ifndef WIN32
 // signal handlers
 extern "C"
 {	// The kernel knows nothing of objects so
@@ -183,6 +206,7 @@ extern "C"
 	}
 #endif
 }
+#endif
 
 // this is used by dansguardian.cpp, to, yep, test connection to the proxy
 // If report is true we log the problem.  report as false allows the caller
@@ -215,6 +239,7 @@ bool fc_testproxy(std::string proxyip, int proxyport, bool report)
 	return true;  // it worked!
 }
 
+#ifndef WIN32
 // Fork ourselves off into the background
 bool daemonise()
 {
@@ -260,6 +285,7 @@ bool daemonise()
 
 	return true;
 }
+#endif
 
 
 // *
@@ -295,7 +321,11 @@ int prefork(int num)
 			// too many children in the conf will
 			// kill the server.  But this is user
 			// error.
+#ifdef WIN32
+			Sleep(1000);  // need to wait until we have a spare slot
+#else
 			sleep(1);  // need to wait until we have a spare slot
+#endif
 			num--;
 			continue;  // Nothing doing, go back to listening
 		} else {
@@ -309,6 +339,7 @@ int prefork(int num)
 	return 1;  // parent returning
 }
 
+#ifndef WIN32
 // cleaning up for brand new child threads - only the parent needs the signal handlers installed, and so forth
 void tidyup_forchild()
 {
@@ -319,6 +350,7 @@ void tidyup_forchild()
 	sigaddset(&sigs, SIGUSR1);
 	pthread_sigmask(SIG_BLOCK, &sigs, NULL);
 }
+#endif
 
 // handle any connections received by this child (also tell parent we're ready each time we become idle)
 void* handle_connections(void *arg)
@@ -327,7 +359,9 @@ void* handle_connections(void *arg)
 	String ip;
 	reloadconfig = false;
 			
+#ifndef WIN32
 	tidyup_forchild();
+#endif
 
 	// stay alive both for the maximum allowed age of child processes, and whilst we aren't supposed to be re-reading configuration
 	while (!reloadconfig && !ttg) {
@@ -350,20 +384,18 @@ void* handle_connections(void *arg)
 		connqueue.pop();
 		pthread_mutex_unlock(&connmutex);
 
-		std::auto_ptr<Socket> peersock(NULL);
-
-		peersock.reset(serversockets[acceptfd]->accept());
-		String peersockip (peersock->getPeerIP());
+		Socket peersock(acceptfd);
+		String peersockip (peersock.getPeerIP());
 
 		// now check the connection is actually good
-		if (peersock->getFD() < 0 || peersockip.length() < 7) {
+		if (acceptfd < 0 || peersockip.length() < 7) {
 			if (o.logconerror)
 				syslog(LOG_INFO, "Error accepting. (Ignorable)");
 			continue;
 		}
 
 		// deal with the connection
-		h.handleConnection(*(peersock.get()), peersockip);
+		h.handleConnection(peersock, peersockip);
 	}
 #ifdef DGDEBUG
 	if (reloadconfig)
@@ -424,7 +456,7 @@ void cullchildren(int num)
 	int count = 0;
 	for (i = o.max_children - 1; i >= 0; i--) {
 		if (childrenstates[i] == 0) {
-			pthread_cancel(childrenids[i]);
+			pthread_kill(childrenids[i], SIGTERM);
 			count++;
 			childrenstates[i] = -2;  // dieing
 			numchildren--;
@@ -443,13 +475,14 @@ void kill_allchildren()
 #endif
 	for (int i = o.max_children - 1; i >= 0; i--) {
 		if (childrenstates[i] >= 0) {
-			pthread_cancel(childrenids[i]);
+			pthread_kill(childrenids[i], SIGTERM);
 			childrenstates[i] = -2;  // dieing
 			numchildren--;
 		}
 	}
 }
 
+#ifndef WIN32
 // send SIGHUP to all child threads
 void hup_allchildren()
 {
@@ -462,13 +495,14 @@ void hup_allchildren()
 		}
 	}
 }
+#endif
 
 // remove child from our PID/FD and slot lists
 void deletechild(pthread_t child_id)
 {
 	int i;
 	for (i = 0; i < o.max_children; i++) {
-		if (childrenids[i] == child_id && childrenstates[i] >= 0) {
+		if ((childrenstates[i] >= 0) && (pthread_equal(childrenids[i], child_id) != 0)) {
 			if (childrenstates[i] != -2) {	// -2 is when its been culled
 				numchildren--;  // so no need to duplicater
 			}
@@ -499,6 +533,9 @@ void *logger_loop(void *arg)
 {
 #ifdef DGDEBUG
 	std::cout << "log thread started" << std::endl;
+#endif
+#ifndef WIN32
+	tidyup_forchild();
 #endif
 
 #ifdef ENABLE_EMAIL
@@ -720,7 +757,7 @@ void *logger_loop(void *arg)
 		else
 			syslog(LOG_INFO, "%s", builtline.c_str());
 #ifdef DGDEBUG
-		std::cout << itemcount << " " << builtline << std::endl;
+		std::cout << builtline << std::endl;
 #endif
 
 #ifdef ENABLE_EMAIL
@@ -914,17 +951,24 @@ void *logger_loop(void *arg)
 
 void *ipstats_loop(void *arg)
 {
+#ifndef WIN32
+	tidyup_forchild();
+#endif
 	int maxusage = 0;
 	while (!ttg)
 	{
+#ifdef WIN32
+		Sleep(180000);
+#else
 		sleep(180);
+#endif
 		// XXX Need cancellation handler to unlock mutex
 		// and close stats file if open
 		pthread_mutex_lock(&ipcachemutex);
 #ifdef DGDEBUG
-		std::cout << "ips in list: " << iplist.getNumberOfItems() << std::endl;
+		std::cout << "ips in list: " << ipcache->getNumberOfItems() << std::endl;
 		std::cout << "purging old ip entries" << std::endl;
-		std::cout << "ips in list: " << iplist.getNumberOfItems() << std::endl;
+		std::cout << "ips in list: " << ipcache->getNumberOfItems() << std::endl;
 #endif
 		ipcache->purgeOldEntries();
 		// write usage statistics
@@ -937,7 +981,11 @@ void *ipstats_loop(void *arg)
 #ifdef DGDEBUG
 		std::cout << "writing usage stats: " << currusage << " " << maxusage << std::endl;
 #endif
+#ifdef WIN32
+		int statfd = open(o.stat_location.c_str(), O_CREAT | O_WRONLY, S_IRUSR | S_IWUSR);
+#else
 		int statfd = open(o.stat_location.c_str(), O_CREAT | O_WRONLY, S_IRUSR | S_IWUSR | S_IRGRP | S_IROTH);
+#endif
 		if (statfd > 0) {
 			write(statfd, usagestats.toCharArray(), usagestats.length());
 		}
@@ -971,11 +1019,15 @@ int fc_controlit()
 	serversocketcount = o.filter_ip.size();
 
 	serversockets.reset(serversocketcount);
-	int *serversockfds = serversockets.getFDAll();
+	SOCKET *serversockfds = serversockets.getFDAll();
 
 	for (int i = 0; i < serversocketcount; i++) {
 		// if the socket fd is not +ve then the socket creation failed
+#ifdef WIN32
 		if (serversockfds[i] < 0) {
+#else
+		if (serversockfds[i] == INVALID_SOCKET) {
+#endif
 			if (!is_daemonised) {
 				std::cerr << "Error creating server socket " << i << std::endl;
 			}
@@ -984,6 +1036,7 @@ int fc_controlit()
 		}
 	}
 
+#ifndef WIN32
 	// Made unconditional such that we have root privs when creating pidfile & deleting old IPC sockets
 	// PRA 10-10-2005
 	/*bool needdrop = false;
@@ -1010,6 +1063,7 @@ int fc_controlit()
 		std::cerr << "Error creating/opening pid file:" << o.pid_filename << std::endl;
 		return 1;
 	}
+#endif
 
 	// we expect to find a valid filter ip 0 specified in conf if multiple IPs are in use.
 	// if we don't find one, bind to any, as per old behaviour.
@@ -1033,6 +1087,7 @@ int fc_controlit()
 		}
 	}
 
+#ifndef WIN32
 	// Made unconditional for same reasons as above
 	//if (needdrop) {
 		rc = seteuid(o.proxy_user);  // become low priv again
@@ -1044,6 +1099,7 @@ int fc_controlit()
 			return 1;  // seteuid failed for some reason so exit with error
 		}
 	//}
+#endif
 
 	if (serversockets.listenAll(256)) {	// set it to listen mode with a kernel
 		// queue of 256 backlog connections
@@ -1054,6 +1110,7 @@ int fc_controlit()
 		return 1;
 	}
 
+#ifndef WIN32
 	if (!daemonise()) {	// become a detached daemon
 		if (!is_daemonised) {
 			std::cerr << "Error daemonising" << std::endl;
@@ -1087,6 +1144,7 @@ int fc_controlit()
 		syslog(LOG_ERR, "%s", "Error ignoring HUP");
 		return (1);
 	}
+#endif
 	
 	// XXX Create logging thread and IP stats thread; kill them after main loop
 	pthread_t logthread;
@@ -1116,6 +1174,7 @@ int fc_controlit()
 	std::cout << "Parent thread created children" << std::endl;
 #endif
 
+#ifndef WIN32
 	// register sig_term as our SIGTERM handler
 	memset(&sa, 0, sizeof(sa));
 	sa.sa_handler = &sig_term;
@@ -1164,15 +1223,22 @@ int fc_controlit()
 #ifdef DGDEBUG
 	std::cout << "Parent thread sig handlers done" << std::endl;
 #endif
+#endif
 
 	childrenids = new pthread_t[o.max_children];  // so when one exits we know who
 	childrenstates = new int[o.max_children];  // so we know what they're up to
 
+#ifdef HAVE_POLL_H
 	pollfd pollfds[serversocketcount];
+#else
+	fd_set selectfds;
+	fd_set selecterrfds;
+	unsigned int nfds = 0;
+#endif
 
 	int i;
 
-	time_t tnow;
+	//time_t tnow;
 	time_t tmaxspare;
 
 	time(&tmaxspare);
@@ -1183,14 +1249,15 @@ int fc_controlit()
 
 	// store child ids...
 	for (i = 0; i < o.max_children; i++) {
-		childrenids[i] = 0;
 		childrenstates[i] = -1;
 	}
 	// ...and server fds
+#ifdef HAVE_POLL_H
 	for (i = 0; i < serversocketcount; i++) {
 		pollfds[i].fd = serversockfds[i];
 		pollfds[i].events = POLLIN;
 	}
+#endif
 
 #ifdef DGDEBUG
 	std::cout << "Parent process pid structs zeroed" << std::endl;
@@ -1205,7 +1272,11 @@ int fc_controlit()
 	numchildren = 0;
 	rc = prefork(o.min_children);
 
+#ifdef WIN32
+	Sleep(1000);
+#else
 	sleep(1);  // need to allow some of the forks to complete
+#endif
 
 #ifdef DGDEBUG
 	std::cout << "Parent process preforked rc:" << rc << std::endl;
@@ -1217,7 +1288,7 @@ int fc_controlit()
 		syslog(LOG_ERR, "%s", "Error creating initial fork pool - exiting...");
 	}
 
-	bool preforked = true;
+	//bool preforked = true;
 	reloadconfig = false;
 
 	syslog(LOG_INFO, "Started sucessfully.");
@@ -1272,24 +1343,42 @@ int fc_controlit()
 			continue;
 		}*/
 
+#ifdef HAVE_POLL_H
 		for (i = 0; i < serversocketcount; i++) {
 			pollfds[i].revents = 0;
 		}
 		rc = poll(pollfds, serversocketcount, 60 * 1000);
-
-		if (rc < 0) {	// was an error
-#ifdef DGDEBUG
-			char errstr[1024];
-			std::cout << "errno:" << errno << " " << strerror_r(errno, errstr, 1024) << std::endl;
+#else
+		FD_ZERO(&selectfds);
+		FD_ZERO(&selecterrfds);
+		for (i = 0; i < serversocketcount; i++) {
+			FD_SET(serversockfds[i], &selectfds);
+			FD_SET(serversockfds[i], &selecterrfds);
+			if (serversockfds[i] > nfds)
+				nfds = serversockfds[i];
+		}
+		timeval stv;
+		stv.tv_sec = 60;
+		stv.tv_usec = 0;
+		rc = select(nfds + 1, &selectfds, NULL, &selecterrfds, &stv);
 #endif
 
-			if (errno == EINTR) {
+#ifdef WIN32
+		if (rc == SOCKET_ERROR) {
+#else
+		if (rc < 0) {
+#endif
+#ifdef DGDEBUG
+			char errstr[1024];
+			std::cout << "errno: " << socket_errno << " " << strerror_r(socket_errno, errstr, 1024) << std::endl;
+#endif
+			if (socket_errno == SOCKET_EINTR) {
 				continue;  // was interupted by a signal so restart
 			}
 			if (o.logconerror)
 			{
 				char errstr[1024];
-				syslog(LOG_ERR, "Error polling child process sockets: %s", strerror_r(errno, errstr, 1024));
+				syslog(LOG_ERR, "Error polling child process sockets: %d, %s", socket_errno, strerror_r(socket_errno, errstr, 1024));
 			}
 			failurecount++;  // log the error/failure
 			continue;  // then continue with the looping
@@ -1297,12 +1386,20 @@ int fc_controlit()
 
 		if (rc > 0) {
 			for (i = 0; i < serversocketcount; i++) {
+#ifdef HAVE_POLL_H
 				if ((pollfds[i].revents & (POLLERR | POLLHUP | POLLNVAL)) > 0) {
+#else
+				if (FD_ISSET(serversockfds[i], &selecterrfds)) {
+#endif
 					ttg = true;
 					syslog(LOG_ERR, "Error with main listening socket.  Exiting.");
 					continue;
 				}
+#ifdef HAVE_POLL_H
 				if ((pollfds[i].revents & POLLIN) > 0) {
+#else
+				if (FD_ISSET(serversockfds[i], &selectfds)) {
+#endif
 					// socket ready to accept() a connection
 					failurecount = 0;  // something is clearly working so reset count
 					/*if (freechildren < 1 && numchildren < o.max_children) {
@@ -1335,10 +1432,11 @@ int fc_controlit()
 					// when a thread starts waiting - if this is not < numchildren, we are
 					// "under load" in the terminology used here.
 
+					int newsock = accept(serversockfds[i], NULL, NULL);
 					pthread_mutex_lock(&connmutex);
 					if (ttg || reloadconfig)
 						break;
-					connqueue.push(i);
+					connqueue.push(newsock);
 					pthread_cond_signal(&connevent);
 					pthread_mutex_unlock(&connmutex);
 				}
@@ -1369,17 +1467,23 @@ int fc_controlit()
 		}*/
 	}
 	cullchildren(numchildren);  // remove the fork pool of spare children
+#ifndef WIN32
 	if (numchildren > 0) {
 		hup_allchildren();
 		sleep(2);  // give them a small chance to exit nicely before we force
 	}
+#endif
 	if (numchildren > 0) {
 		kill_allchildren();
 		mopup_afterkids();
 	}
 	// we might not giving enough time for defuncts to be created and then
 	// mopped but on exit or reload config they'll get mopped up
+#ifdef WIN32
+	Sleep(1000);
+#else
 	sleep(1);
+#endif
 	
 	urlcache.flush();
 
@@ -1411,6 +1515,7 @@ int fc_controlit()
 	delete ipcache;
 	ipcache = NULL;
 
+#ifndef WIN32
 	memset(&sa, 0, sizeof(sa));
 	sa.sa_handler = SIG_DFL;
 	if (sigaction(SIGTERM, &sa, NULL)) {	// restore sig handler
@@ -1447,6 +1552,7 @@ int fc_controlit()
 #endif
 		syslog(LOG_ERR, "%s", "Error resetting signal for SIGPIPE");
 	}
+#endif
 
 	if (o.logconerror) {
 		syslog(LOG_ERR, "%s", "Main parent process exiting.");

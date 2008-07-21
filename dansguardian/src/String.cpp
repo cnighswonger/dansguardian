@@ -25,6 +25,7 @@
 #ifdef HAVE_CONFIG_H
 	#include "dgconfig.h"
 #endif
+
 #include "String.hpp"
 #include "md5.hpp"
 

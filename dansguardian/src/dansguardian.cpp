@@ -31,15 +31,28 @@
 #include <ctime>
 #include <unistd.h>
 #include <cerrno>
-#include <syslog.h>
-#include <pwd.h>
-#include <grp.h>
 #include <fstream>
 #include <fcntl.h>
 #include <locale.h>
 #include <sys/types.h>
-#include <sys/wait.h>
 #include <pthread.h>
+
+#ifdef HAVE_SYS_WAIT_H
+#include <sys/wait.h>
+#endif
+
+#ifdef WIN32
+#include <windows.h>
+#include "../lib/syslog.h"
+#else
+#include <syslog.h>
+#include <pwd.h>
+#include <grp.h>
+#endif
+
+#ifndef HAVE_STRERROR_R
+#include "../lib/strerror_r.h"
+#endif
 
 #ifdef __BENCHMARK
 #include <sys/times.h>
@@ -118,6 +131,17 @@ int main(int argc, char *argv[])
 	srand(time(NULL));
 	int rc;
 
+#ifdef WIN32
+	extern CRITICAL_SECTION ctime_r_section;
+	extern CRITICAL_SECTION localtime_r_section;
+	extern CRITICAL_SECTION strerror_r_section;
+	InitializeCriticalSection(&ctime_r_section);
+	InitializeCriticalSection(&localtime_r_section);
+	InitializeCriticalSection(&strerror_r_section);
+	WSADATA wsadata;
+	WSAStartup(MAKEWORD(2, 2), &wsadata);
+#endif
+
 	openlog("dansguardian", LOG_PID | LOG_CONS, LOG_USER);
 
 #ifdef DGDEBUG
@@ -134,6 +158,7 @@ int main(int argc, char *argv[])
 				char option = argv[i][j];
 				bool dobreak = false;
 				switch (option) {
+#ifndef WIN32
 				case 'q':
 					read_config(configfile.c_str(), 0);
 					return sysv_kill(o.pid_filename);
@@ -142,7 +167,11 @@ int main(int argc, char *argv[])
 					sysv_kill(o.pid_filename);
 					// give the old process time to die
 					while(sysv_amirunning(o.pid_filename))
+#ifndef WIN32
 						sleep(1);
+#else
+						Sleep(1000);
+#endif
 					// remember to reset config before continuing
 					needreset = true;
 					break;
@@ -155,13 +184,14 @@ int main(int argc, char *argv[])
 				case 'g':
 					read_config(configfile.c_str(), 0);
 					return sysv_usr1(o.pid_filename);
+				case 'N':
+					nodaemon = true;
+					break;
+#endif
 				case 'v':
 					std::cout << "DansGuardian " << PACKAGE_VERSION << std::endl << std::endl
 						<< "Built with: " << DG_CONFIGURE_OPTIONS << std::endl;
 					return 0;
-				case 'N':
-					nodaemon = true;
-					break;
 				case 'c':
 					if ((i+1) < argc) {
 						configfile = argv[i+1];
@@ -176,6 +206,7 @@ int main(int argc, char *argv[])
 					std::cout << "  -v gives the version number and build options." << std::endl;
 					std::cout << "  -h gives this message." << std::endl;
 					std::cout << "  -c allows you to specify a different configuration file location." << std::endl;
+#ifndef WIN32
 					std::cout << "  -N Do not go into the background." << std::endl;
 					std::cout << "  -q causes DansGuardian to kill any running copy." << std::endl;
 					std::cout << "  -Q kill any running copy AND start a new one with current options." << std::endl;
@@ -184,6 +215,7 @@ int main(int argc, char *argv[])
 					std::cout << "     but this does not reset the maxchildren option (amongst others)." << std::endl;
 					std::cout << "  -g gently restarts by not closing all current connections; only reloads" << std::endl
 						<< "     filter group config files. (Issues a USR1)" << std::endl;
+#endif
 #ifdef __BENCHMARK
 					std::cout << "  --bs benchmark searching filter group 1's bannedsitelist" << std::endl;
 					std::cout << "  --bu benchmark searching filter group 1's bannedurllist" << std::endl;
@@ -301,11 +333,13 @@ int main(int argc, char *argv[])
 	}
 #endif
 
+#ifndef WIN32
 	if (sysv_amirunning(o.pid_filename)) {
 		syslog(LOG_ERR, "%s", "I seem to be running already!");
 		std::cerr << "I seem to be running already!" << std::endl;
 		return 1;  // can't have two copies running!!
 	}
+#endif
 
 	if (nodaemon) {
 		o.no_daemon = 1;
@@ -318,6 +352,7 @@ int main(int argc, char *argv[])
 		return 1;  // we can't have rampant proccesses can we?
 	}
 
+#ifndef WIN32
 	unsigned int rootuid;  // prepare a struct for use later
 	rootuid = geteuid();
 	o.root_user = rootuid;
@@ -362,6 +397,7 @@ int main(int argc, char *argv[])
 		return 1;  // was unable to lockup the user id from passwd
 		// for some reason, so exit with error
 	}
+#endif
 
 	if ((o.ll > 0) && !o.log_syslog) {
 		std::ofstream logfiletest(o.log_location.c_str(), std::ios::app);
@@ -453,9 +489,17 @@ int main(int argc, char *argv[])
 
 	while (true) {
 		if (!fc_testproxy(o.proxy_ip, o.proxy_port, false)) {
+#ifndef WIN32
 			sleep(4);  // give the proxy more time (work around squid bug)
+#else
+			Sleep(4000);
+#endif
 			if (!fc_testproxy(o.proxy_ip, o.proxy_port, false)) {
+#ifndef WIN32
 				sleep(4);
+#else
+				Sleep(4000);
+#endif
 				if (!fc_testproxy(o.proxy_ip, o.proxy_port, true)) {
 					return 1;  // could not connect to the proxy so exit with error
 					// with no proxy we can not continue
@@ -470,10 +514,12 @@ int main(int argc, char *argv[])
 		// However the line is not so fine.
 		if (rc == 2) {
 
+#ifndef WIN32
 			// In order to re-read the conf files and create cache files
 			// we need to become root user again
 
 			rc = seteuid(rootuid);
+#endif
 			if (rc == -1) {
 				syslog(LOG_ERR, "%s", "Unable to seteuid() to read conf files.");
 #ifdef DGDEBUG
@@ -502,6 +548,7 @@ int main(int argc, char *argv[])
 				o.no_daemon = 1;
 			}
 
+#ifndef WIN32
 			while (waitpid(-1, NULL, WNOHANG) > 0) {
 			}	// mop up defunts
 
@@ -514,6 +561,7 @@ int main(int argc, char *argv[])
 #endif
 				return 1;  // seteuid failed for some reason so exit with error
 			}
+#endif
 			continue;
 		}
 

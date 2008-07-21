@@ -26,7 +26,11 @@
 #include "../Auth.hpp"
 #include "../OptionContainer.hpp"
 
+#ifdef WIN32
+#include "../../lib/syslog.h"
+#else
 #include <syslog.h>
+#endif
 
 
 // GLOBALS

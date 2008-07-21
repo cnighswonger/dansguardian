@@ -25,8 +25,17 @@
 #endif
 #include "SocketArray.hpp"
 
-#include <syslog.h>
 #include <cerrno>
+
+#ifdef WIN32
+#include "../lib/syslog.h"
+#else
+#include <syslog.h>
+#endif
+
+#ifndef HAVE_STRERROR_R
+#include "../lib/strerror_r.h"
+#endif
 
 
 // GLOBALS
@@ -67,9 +76,9 @@ int SocketArray::bindSingle(int port)
 }
 
 // return an array of our socket FDs
-int* SocketArray::getFDAll()
+SOCKET* SocketArray::getFDAll()
 {
-	int *fds = new int[socknum];
+	SOCKET *fds = new SOCKET[socknum];
 	for (unsigned int i = 0; i < socknum; i++) {
 #ifdef DGDEBUG
 		std::cerr << "Socket " << i << " fd:" << drawer[i].getFD() << std::endl;

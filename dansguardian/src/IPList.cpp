@@ -8,14 +8,29 @@
 
 #include <iostream>
 #include <fstream>
+
+#ifndef WIN32
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
+#else
+#include <winsock2.h>
+#endif
+
 #include <algorithm>
 #include <memory>
 #include <list>
 #include <vector>
+
+#ifdef WIN32
+#include "../lib/syslog.h"
+#else
 #include <syslog.h>
+#endif
+
+#ifndef HAVE_INET_ATON
+#include "../lib/inet_aton.h"
+#endif
 
 
 // GLOBALS

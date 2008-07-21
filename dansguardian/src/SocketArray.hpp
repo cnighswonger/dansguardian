@@ -52,7 +52,7 @@ public:
 	int listenAll(int queue);
 
 	// shove all socket FDs into the given array (pass in unallocated)
-	int* getFDAll();
+	SOCKET* getFDAll();
 
 	// array dereference operator
 	Socket* operator[] (int i) { return &(drawer[i]); };

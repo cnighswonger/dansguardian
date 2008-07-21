@@ -26,12 +26,17 @@
 #endif
 #include "ImageContainer.hpp"
 
-#include <syslog.h>
 #include <cstdlib>
 #include <cstdio>
 #include <iostream>
 #include <fstream>
 #include <limits.h>
+
+#ifdef WIN32
+#include "../lib/syslog.h"
+#else
+#include <syslog.h>
+#endif
 
 
 // GLOBALS

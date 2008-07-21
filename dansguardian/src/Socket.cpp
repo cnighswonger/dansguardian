@@ -25,15 +25,24 @@
 #endif
 #include "Socket.hpp"
 
-#include <syslog.h>
 #include <csignal>
 #include <fcntl.h>
 #include <sys/time.h>
-#include <pwd.h>
-#include <cerrno>
 #include <unistd.h>
 #include <stdexcept>
+#ifdef HAVE_NETINET_TCP_H
 #include <netinet/tcp.h>
+#endif
+
+#ifdef WIN32
+#include "../lib/syslog.h"
+#else
+#include <syslog.h>
+#endif
+
+#ifndef HAVE_INET_ATON
+#include "../lib/inet_aton.h"
+#endif
 
 
 // IMPLEMENTATION
@@ -42,13 +51,18 @@
 Socket::Socket()
 {
 	sck = socket(AF_INET, SOCK_STREAM, 0);
+	sckinuse = true;
 	memset(&my_adr, 0, sizeof my_adr);
 	memset(&peer_adr, 0, sizeof peer_adr);
 	my_adr.sin_family = AF_INET;
 	peer_adr.sin_family = AF_INET;
 	peer_adr_length = sizeof(struct sockaddr_in);
 	int f = 1;
-	setsockopt(sck, IPPROTO_TCP, TCP_NODELAY, &f, sizeof(int));
+	setsockopt(sck, IPPROTO_TCP, TCP_NODELAY, (SOCKOPT) &f, sizeof(int));
+	linger l;
+	l.l_onoff = 1;
+	l.l_linger = 1;
+	setsockopt(sck, SOL_SOCKET, SO_LINGER, (SOCKOPT) &l, sizeof(linger));
 }
 
 // create socket from pre-existing FD (address structs will be invalid!)
@@ -60,7 +74,7 @@ Socket::Socket(int fd):BaseSocket(fd)
 	peer_adr.sin_family = AF_INET;
 	peer_adr_length = sizeof(struct sockaddr_in);
 	int f = 1;
-	setsockopt(sck, IPPROTO_TCP, TCP_NODELAY, &f, sizeof(int));
+	setsockopt(sck, IPPROTO_TCP, TCP_NODELAY, (SOCKOPT) &f, sizeof(int));
 }
 
 // create socket from pre-existing FD, storing local & remote IPs
@@ -74,7 +88,7 @@ Socket::Socket(int newfd, struct sockaddr_in myip, struct sockaddr_in peerip):Ba
 	peer_adr = peerip;
 	peer_adr_length = sizeof(struct sockaddr_in);
 	int f = 1;
-	setsockopt(sck, IPPROTO_TCP, TCP_NODELAY, &f, sizeof(int));
+	setsockopt(sck, IPPROTO_TCP, TCP_NODELAY, (SOCKOPT) &f, sizeof(int));
 }
 
 // find the ip to which the client has connected
@@ -106,6 +120,7 @@ void Socket::reset()
 {
 	this->baseReset();
 	sck = socket(AF_INET, SOCK_STREAM, 0);
+	sckinuse = true;
 	memset(&my_adr, 0, sizeof my_adr);
 	memset(&peer_adr, 0, sizeof peer_adr);
 	my_adr.sin_family = AF_INET;
@@ -126,7 +141,7 @@ int Socket::bind(int port)
 {
 	int len = sizeof my_adr;
 	int i = 1;
-	setsockopt(sck, SOL_SOCKET, SO_REUSEADDR, &i, sizeof(i));
+	setsockopt(sck, SOL_SOCKET, SO_REUSEADDR, (SOCKOPT) &i, sizeof(i));
 	my_adr.sin_port = htons(port);
 	return ::bind(sck, (struct sockaddr *) &my_adr, len);
 }
@@ -136,7 +151,7 @@ int Socket::bind(const std::string &ip, int port)
 {
 	int len = sizeof my_adr;
 	int i = 1;
-	setsockopt(sck, SOL_SOCKET, SO_REUSEADDR, &i, sizeof(i));
+	setsockopt(sck, SOL_SOCKET, SO_REUSEADDR, (SOCKOPT) &i, sizeof(i));
 	my_adr.sin_port = htons(port);
 	my_adr.sin_addr.s_addr = inet_addr(ip.c_str());
 	return ::bind(sck, (struct sockaddr *) &my_adr, len);

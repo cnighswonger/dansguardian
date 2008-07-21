@@ -26,16 +26,25 @@
 #include <csignal>
 #include <fcntl.h>
 #include <sys/time.h>
-#include <pwd.h>
 #include <cerrno>
 #include <unistd.h>
 #include <stdexcept>
+#include <iostream>
+
+#ifdef WIN32
+#include "../lib/syslog.h"
+#else
 #include <syslog.h>
+#endif
 
 #ifndef WIN32
 #include <sys/select.h>
 #else
 #include <winsock2.h>
+#endif
+
+#ifndef HAVE_STRERROR_R
+#include "../lib/strerror_r.h"
 #endif
 
 #ifdef DGDEBUG
@@ -64,12 +73,11 @@ extern bool reloadconfig;
 
 // IMPLEMENTATION
 
-// a wrapper for select so that it auto-restarts after an EINTR.
+// a wrapper for select so that it auto-restarts after an SOCKET_EINTR.
 // can be instructed to watch out for signal triggered config reloads.
-int selectEINTR(int numfds, fd_set * readfds, fd_set * writefds, fd_set * exceptfds, struct timeval *timeout, bool honour_reloadconfig)
+int selectEINTR(std::set<SOCKET> *readfds, std::set<SOCKET> *writefds, std::set<SOCKET> *exceptfds, struct timeval *timeout, bool honour_reloadconfig)
 {
 	int rc;
-	errno = 0;
 	// Fix for OSes that do not explicitly modify select()'s timeout value
 	// from Soner Tari <list@kulustur.org> (namely OpenBSD)
 	// Modified to use custom code in preference to timersub/timercmp etc.
@@ -78,11 +86,57 @@ int selectEINTR(int numfds, fd_set * readfds, fd_set * writefds, fd_set * except
 	timeval exittime;
 	timeval elapsedtime;
 	timeval timeoutcopy;
-	while (true) {  // using the while as a restart point with continue
+	std::set<SOCKET> orig_readfds, orig_writefds, orig_exceptfds;
+	
+	// find highest FD for passing into select
+	SOCKET numfds = 0;
+	if (readfds) {
+		for (std::set<SOCKET>::const_iterator i = readfds->begin(); i != readfds->end(); ++i)
+			if ((*i) > numfds)
+				numfds = *i;
+		orig_readfds = *readfds;
+		readfds->clear();
+	}
+	if (writefds) {
+		for (std::set<SOCKET>::const_iterator i = writefds->begin(); i != writefds->end(); ++i)
+			if ((*i) > numfds)
+				numfds = *i;
+		orig_writefds = *writefds;
+		writefds->clear();
+	}
+	if (exceptfds) {
+		for (std::set<SOCKET>::const_iterator i = exceptfds->begin(); i != exceptfds->end(); ++i)
+			if ((*i) > numfds)
+				numfds = *i;
+		orig_exceptfds = *exceptfds;
+		exceptfds->clear();
+	}
+	++numfds;
+
+	while (true) {
+		// Build up actual fdsets from the integer sets we've been given
+		// All because an fd_set is an opaque structure on Windows....
+		fd_set readset, writeset, exceptset;
+		if (readfds) {
+			FD_ZERO(&readset);
+			for (std::set<SOCKET>::const_iterator i = orig_readfds.begin(); i != orig_readfds.end(); ++i)
+				FD_SET(*i, &readset);
+		}
+		if (writefds) {
+			FD_ZERO(&writeset);
+			for (std::set<SOCKET>::const_iterator i = orig_writefds.begin(); i != orig_writefds.end(); ++i)
+				FD_SET(*i, &writeset);
+		}
+		if (exceptfds) {
+			FD_ZERO(&exceptset);
+			for (std::set<SOCKET>::const_iterator i = orig_exceptfds.begin(); i != orig_exceptfds.end(); ++i)
+				FD_SET(*i, &exceptset);
+		}
+			
 		if (timeout != NULL) {
 			gettimeofday(&entrytime, NULL);
 			timeoutcopy = *timeout;
-			rc = select(numfds, readfds, writefds, exceptfds, &timeoutcopy);
+			rc = select(numfds, (readfds ? &readset : NULL), (writefds ? &writeset : NULL), (exceptfds ? &exceptset : NULL), &timeoutcopy);
 			// explicitly modify the timeout if the OS hasn't done this for us
 			if (timeoutcopy.tv_sec == timeout->tv_sec && timeoutcopy.tv_usec == timeout->tv_usec) {
 				gettimeofday(&exittime, NULL);
@@ -103,10 +157,31 @@ int selectEINTR(int numfds, fd_set * readfds, fd_set * writefds, fd_set * except
 				*timeout = timeoutcopy;
 			}
 		} else
-			rc = select(numfds, readfds, writefds, exceptfds, NULL);
+			rc = select(numfds, (readfds ? &readset : NULL), (writefds ? &writeset : NULL), (exceptfds ? &exceptset : NULL), NULL);
+#ifdef WIN32
+		if (rc == SOCKET_ERROR) {
+#else
 		if (rc < 0) {
-			if (errno == EINTR && (honour_reloadconfig? !reloadconfig : true)) {
+#endif
+			if (socket_errno == SOCKET_EINTR && (honour_reloadconfig? !reloadconfig : true)) {
 				continue;  // was interupted by a signal so restart
+			}
+		}
+		else if (rc > 0) {
+			if (readfds) {
+				for (std::set<SOCKET>::const_iterator i = orig_readfds.begin(); i != orig_readfds.end(); ++i)
+					if (FD_ISSET(*i, &readset))
+							readfds->insert(*i);
+			}
+			if (writefds) {
+				for (std::set<SOCKET>::const_iterator i = orig_writefds.begin(); i != orig_writefds.end(); ++i)
+					if (FD_ISSET(*i, &writeset))
+							writefds->insert(*i);
+			}
+			if (exceptfds) {
+				for (std::set<SOCKET>::const_iterator i = orig_exceptfds.begin(); i != orig_exceptfds.end(); ++i)
+					if (FD_ISSET(*i, &exceptset))
+							exceptfds->insert(*i);
 			}
 		}
 		break;  // end the while
@@ -118,21 +193,24 @@ int selectEINTR(int numfds, fd_set * readfds, fd_set * writefds, fd_set * except
 // code as well as functions for testing and working with the socket FDs.
 
 // constructor - override this if desired to create an actual socket at startup
-BaseSocket::BaseSocket():timeout(5), sck(-1), buffstart(0), bufflen(0)
+BaseSocket::BaseSocket():timeout(5), sck(0), sckinuse(false), buffstart(0), bufflen(0)
 {}
 
 // create socket from FD - must be overridden to clear the relevant address structs
-BaseSocket::BaseSocket(int fd):timeout(5), buffstart(0), bufflen(0)
+BaseSocket::BaseSocket(SOCKET fd):timeout(5), sck(fd), sckinuse(true), buffstart(0), bufflen(0)
 {
-	sck = fd;
 }
 
 // destructor - close socket
 BaseSocket::~BaseSocket()
 {
 	// close fd if socket not used
-	if (sck > -1) {
+	if (sckinuse) {
+#ifndef WIN32
 		::close(sck);
+#else
+		closesocket(sck);
+#endif
 	}
 }
 
@@ -140,9 +218,13 @@ BaseSocket::~BaseSocket()
 // call this in derived classes' reset() method, which should also clear address structs
 void BaseSocket::baseReset()
 {
-	if (sck > -1) {
+	if (sckinuse) {
+#ifndef WIN32
 		::close(sck);
-		sck = -1;
+#else
+		closesocket(sck);
+#endif
+		sckinuse = false;
 	}
 	timeout = 5;
 	buffstart = 0;
@@ -155,6 +237,7 @@ int BaseSocket::listen(int queue)
 	return ::listen(sck, queue);
 }
 
+#ifndef WIN32
 // "template adaptor" for accept - basically, let G++ do the hard work of
 // figuring out the type of the third parameter ;)
 template <typename T>
@@ -163,22 +246,30 @@ inline int local_accept_adaptor (int (*accept_func)(int, struct sockaddr*, T),
 {
   return accept_func (sck, acc_adr, (T) acc_adr_length);
 }
+#endif
 
 // receive an incoming connection & return FD
 // call this in accept methods of derived classes, which should pass in empty sockaddr & socklen_t to be filled out
-int BaseSocket::baseAccept(struct sockaddr *acc_adr, socklen_t *acc_adr_length)
+SOCKET BaseSocket::baseAccept(struct sockaddr *acc_adr, socklen_t *acc_adr_length)
 {	
 
+#ifndef WIN32
 	// OS X defines accept as:
 	// int accept(int s, struct sockaddr *addr, int *addrlen);
 	// but everyone else as:
 	// int accept(int s, struct sockaddr *addr, socklen_t *addrlen);
 	// NB: except 10.4, which seems to use the more standard definition. grrr.
 	return local_accept_adaptor(::accept, sck, acc_adr, acc_adr_length);
+#else
+	// However the above doesn't work for Windows - possibly some interaction
+	// with templates and SOCKET being a macro, but regardless, it doesn't like
+	// the type of accept() on Windows.
+	return ::accept(sck, acc_adr, acc_adr_length);
+#endif
 }
 
 // return socket's FD - please use sparingly and DO NOT do manual data transfer using it
-int BaseSocket::getFD()
+SOCKET BaseSocket::getFD()
 {
 	return sck;
 }
@@ -186,9 +277,13 @@ int BaseSocket::getFD()
 // close the socket
 void BaseSocket::close()
 {
-	if (sck > -1) {
+	if (sckinuse) {
+#ifndef WIN32
 		::close(sck);
-		sck = -1;
+#else
+		closesocket(sck);
+#endif
+		sckinuse = false;
 	}
 	buffstart = 0;
 	bufflen = 0;
@@ -211,13 +306,12 @@ bool BaseSocket::checkForInput()
 {
 	if ((bufflen - buffstart) > 0)
 		return true;
-	fd_set fdSet;
-	FD_ZERO(&fdSet);  // clear the set
-	FD_SET(sck, &fdSet);  // add fd to the set
 	timeval t;  // timeval struct
 	t.tv_sec = 0;
 	t.tv_usec = 0;
-	if (selectEINTR(sck + 1, &fdSet, NULL, NULL, &t) < 1) {
+	std::set<SOCKET> fdSet;
+	fdSet.insert(sck);
+	if (selectEINTR(&fdSet, NULL, NULL, &t) < 1) {
 		return false;
 	}
 	return true;
@@ -230,29 +324,32 @@ void BaseSocket::checkForInput(int timeout, bool honour_reloadconfig) throw(std:
 		return;
 	// blocks if socket blocking
 	// until timeout
-	fd_set fdSet;
-	FD_ZERO(&fdSet);  // clear the set
-	FD_SET(sck, &fdSet);  // add fd to the set
 	timeval t;  // timeval struct
 	t.tv_sec = timeout;
 	t.tv_usec = 0;
-	if (selectEINTR(sck + 1, &fdSet, NULL, NULL, &t, honour_reloadconfig) < 1) {
-		std::string err("select() on input: ");
+	int rc;
+	std::set<SOCKET> fdSet;
+	fdSet.insert(sck);
+	if ((rc = selectEINTR(&fdSet, NULL, NULL, &t, honour_reloadconfig)) < 1) {
+		int sockopterr;
+		socklen_t sl = sizeof(int);
+		getsockopt(sck, SOL_SOCKET, SO_ERROR, (SOCKOPT) &sockopterr, &sl);
 		char errstr[1024];
-		throw std::runtime_error(err + (errno ? strerror_r(errno, errstr, 1024) : "timeout"));
+		syslog(LOG_ERR, "select() on input: getsockopt %d, select rc %d, socket errno %d, %s", sockopterr, rc, socket_errno, strerror_r(socket_errno, errstr, 1024));
+		std::string err("select() on input: ");
+		throw std::runtime_error(err + (socket_errno ? errstr : "unknown/timeout"));
 	}
 }
 
 // non-blocking check to see if a socket is ready to be written
 bool BaseSocket::readyForOutput()
 {
-	fd_set fdSet;
-	FD_ZERO(&fdSet);  // clear the set
-	FD_SET(sck, &fdSet);  // add fd to the set
 	timeval t;  // timeval struct
 	t.tv_sec = 0;
 	t.tv_usec = 0;
-	if (selectEINTR(sck + 1, NULL, &fdSet, NULL, &t) < 1) {
+	std::set<SOCKET> fdSet;
+	fdSet.insert(sck);
+	if (selectEINTR(NULL, &fdSet, NULL, &t) < 1) {
 		return false;
 	}
 	return true;
@@ -263,16 +360,15 @@ void BaseSocket::readyForOutput(int timeout, bool honour_reloadconfig) throw(std
 {
 	// blocks if socket blocking
 	// until timeout
-	fd_set fdSet;
-	FD_ZERO(&fdSet);  // clear the set
-	FD_SET(sck, &fdSet);  // add fd to the set
 	timeval t;  // timeval struct
 	t.tv_sec = timeout;
 	t.tv_usec = 0;
-	if (selectEINTR(sck + 1, NULL, &fdSet, NULL, &t, honour_reloadconfig) < 1) {
+	std::set<SOCKET> fdSet;
+	fdSet.insert(sck);
+	if (selectEINTR(NULL, &fdSet, NULL, &t, honour_reloadconfig) < 1) {
 		std::string err("select() on output: ");
 		char errstr[1024];
-		throw std::runtime_error(err + (errno ? strerror_r(errno, errstr, 1024) : "timeout"));
+		throw std::runtime_error(err + (socket_errno ? strerror_r(socket_errno, errstr, 1024) : "timeout"));
 	}
 }
 
@@ -307,18 +403,18 @@ int BaseSocket::getLine(char *buff, int size, int timeout, bool honour_reloadcon
 			checkForInput(timeout, honour_reloadconfig);
 		} catch(std::exception & e) {
 			char errstr[1024];
-			throw std::runtime_error(std::string("Can't read from socket: ") + strerror_r(errno, errstr, 1024));  // on error
+			throw std::runtime_error(std::string("Can't read from socket: ") + strerror_r(socket_errno, errstr, 1024));  // on error
 		}
 		bufflen = recv(sck, buffer, 1024, 0);
 #ifdef DGDEBUG
 		std::cout << "read into buffer; bufflen: " << bufflen << std::endl;
 #endif
 		if (bufflen < 0) {
-			if (errno == EINTR && (honour_reloadconfig ? !reloadconfig : true)) {
+			if (socket_errno == SOCKET_EINTR && (honour_reloadconfig ? !reloadconfig : true)) {
 				continue;
 			}
 			char errstr[1024];
-			throw std::runtime_error(std::string("Can't read from socket: ") + strerror_r(errno, errstr, 1024));  // on error
+			throw std::runtime_error(std::string("Can't read from socket: ") + strerror_r(socket_errno, errstr, 1024));  // on error
 		}
 		//if socket closed or newline received...
 		if (bufflen == 0) {
@@ -350,7 +446,7 @@ void BaseSocket::writeString(const char *line) throw(std::exception)
 	int l = strlen(line);
 	if (!writeToSocket(line, l, 0, timeout)) {
 		char errstr[1024];
-		throw std::runtime_error(std::string("Can't write to socket: ") + strerror_r(errno, errstr, 1024));
+		throw std::runtime_error(std::string("Can't write to socket: ") + strerror_r(socket_errno, errstr, 1024));
 	}
 }
 
@@ -359,7 +455,7 @@ void BaseSocket::writeToSockete(const char *buff, int len, unsigned int flags, i
 {
 	if (!writeToSocket(buff, len, flags, timeout, honour_reloadconfig)) {
 		char errstr[1024];
-		throw std::runtime_error(std::string("Can't write to socket: ") + strerror_r(errno, errstr, 1024));
+		throw std::runtime_error(std::string("Can't write to socket: ") + strerror_r(socket_errno, errstr, 1024));
 	}
 }
 
@@ -379,7 +475,7 @@ bool BaseSocket::writeToSocket(const char *buff, int len, unsigned int flags, in
 		}
 		sent = send(sck, buff + actuallysent, len - actuallysent, 0);
 		if (sent < 0) {
-			if (errno == EINTR && (honour_reloadconfig ? !reloadconfig : true)) {
+			if (socket_errno == SOCKET_EINTR && (honour_reloadconfig ? !reloadconfig : true)) {
 				continue;  // was interupted by signal so restart
 			}
 			return false;
@@ -423,7 +519,7 @@ int BaseSocket::readFromSocketn(char *buff, int len, unsigned int flags, int tim
 		}
 		rc = recv(sck, buff, cnt, flags);
 		if (rc < 0) {
-			if (errno == EINTR) {
+			if (socket_errno == SOCKET_EINTR) {
 				continue;
 			}
 			return -1;
@@ -469,7 +565,7 @@ int BaseSocket::readFromSocket(char *buff, int len, unsigned int flags, int time
 	while (true) {
 		rc = recv(sck, buff, cnt, flags);
 		if (rc < 0) {
-			if (errno == EINTR && (honour_reloadconfig ? !reloadconfig : true)) {
+			if (socket_errno == SOCKET_EINTR && (honour_reloadconfig ? !reloadconfig : true)) {
 				continue;
 			}
 		}

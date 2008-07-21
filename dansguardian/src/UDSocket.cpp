@@ -25,15 +25,19 @@
 #endif
 #include "UDSocket.hpp"
 
-#include <syslog.h>
 #include <csignal>
 #include <fcntl.h>
 #include <sys/time.h>
-#include <pwd.h>
 #include <cerrno>
 #include <unistd.h>
 #include <stdexcept>
 #include <stddef.h>
+
+#ifdef WIN32
+#include "../lib/syslog.h"
+#else
+#include <syslog.h>
+#endif
 
 #ifdef DGDEBUG
 #include <iostream>
@@ -51,6 +55,7 @@
 UDSocket::UDSocket()
 {
 	sck = socket(PF_UNIX, SOCK_STREAM, 0);
+	sckinuse = true;
 	memset(&my_adr, 0, sizeof my_adr);
 	memset(&peer_adr, 0, sizeof peer_adr);
 	my_adr.sun_family = AF_UNIX;
@@ -78,6 +83,7 @@ void UDSocket::reset()
 {
 	this->baseReset();
 	sck = socket(PF_UNIX, SOCK_STREAM, 0);
+	sckinuse = true;
 	memset(&my_adr, 0, sizeof my_adr);
 	memset(&peer_adr, 0, sizeof peer_adr);
 	my_adr.sun_family = AF_UNIX;

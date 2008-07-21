@@ -27,9 +27,13 @@
 #include "RegExp.hpp"
 #include "ListContainer.hpp"
 
-#include <syslog.h>
 #include <algorithm>
 
+#ifdef WIN32
+#include "../lib/syslog.h"
+#else
+#include <syslog.h>
+#endif
 
 // GLOBALS 
 

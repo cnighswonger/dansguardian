@@ -2,7 +2,7 @@
 # Inspired by a script provided by Alex Ott
 # 2004,2005 - Daniel Barron
 
-AC_PREREQ(2.57)
+AC_PREREQ(2.59)
 AC_INIT(dansguardian, 2.9.9.6)
 AM_INIT_AUTOMAKE
 AC_CONFIG_HEADERS([dgconfig.h])
@@ -11,7 +11,9 @@ AC_CACHE_LOAD
 
 # Checks for programs.
 AC_PROG_CXX
+AC_PROG_CXXCPP
 AC_PROG_CC
+AM_PROG_CC_C_O
 AC_PROG_CPP
 AC_PROG_INSTALL
 AC_PROG_LN_S
@@ -22,20 +24,11 @@ AC_LANG(C++)
 AC_CACHE_SAVE
 
 # Checks for header files.
-AC_CHECK_HEADERS([arpa/inet.h fcntl.h limits.h netdb.h netinet/in.h stdlib.h])
+AC_CHECK_HEADERS([arpa/inet.h fcntl.h limits.h netdb.h netinet/in.h netinet/tcp.h stdlib.h])
 AC_CHECK_HEADERS([string.h sys/socket.h sys/time.h unistd.h locale.h])
-AC_CHECK_HEADERS([sys/types.h sys/un.h sys/poll.h sys/resource.h])
+AC_CHECK_HEADERS([sys/types.h sys/wait.h sys/un.h poll.h sys/resource.h])
 AC_CHECK_HEADERS([pwd.h grp.h])
 AC_CHECK_HEADERS([byteswap.h])
-AC_CHECK_HEADER(
-		[syslog.h],
-		[
-			AC_DEFINE([HAVE_SYSLOG_H], [1], [Define to 1 if you have <syslog.h>])
-			syslog=true
-		],
-		[ syslog=false ]
-)
-AM_CONDITIONAL(HAVE_SYSLOG_H, test "x$syslog" = "xtrue")
 
 # Check system endianness
 AC_C_BIGENDIAN
@@ -107,12 +100,41 @@ AC_CACHE_SAVE
 
 AC_MSG_CHECKING(for backside with both hands)
 AC_MSG_RESULT(no)
+
+# Check for POSIX threads - native or pthreads-win32 library
+
+AC_MSG_CHECKING(for pthreads-win32 support)
+AC_ARG_WITH(pthreads-win32,
+	[AC_HELP_STRING([--with-pthreads-win32@<:@=off@:>@], [use pthreads-win32 library])],
+	[if test "x${withval}" == "xoff"; then
+		AC_MSG_RESULT(no)
+		ACX_PTHREAD
+	else
+		AC_MSG_RESULT(yes)
+		CPPFLAGS="${CPPFLAGS} -I${withval}/include"
+		LIBS="-L${withval}/lib -lpthreadGC2 ${LIBS}"
+	fi],
+	[AC_MSG_RESULT(no)
+	ACX_PTHREAD]
+)
+
+# OS-specific tweaks - mainly replace functions not present on Windows
+
 AC_MSG_CHECKING(host os)
 AC_CANONICAL_HOST
 AC_MSG_RESULT($host_os)
 
-# Check for POSIX threads
-ACX_PTHREAD
+win=false
+case "$host_os" in
+	mingw*)
+		win=true
+		AC_CHECK_FUNCS([inet_aton strerror_r ctime_r mkstemp localtime_r])
+		LIBS="-lwsock32 ${LIBS}"
+		;;
+	*)
+		;;
+esac
+AM_CONDITIONAL(WIN32, test "x$win" = "xtrue")
 
 AC_MSG_CHECKING(for debug option)
 AC_ARG_WITH(dgdebug,

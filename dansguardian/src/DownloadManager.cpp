@@ -33,7 +33,12 @@
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <fcntl.h>
+
+#ifdef WIN32
+#include "../lib/syslog.h"
+#else
 #include <syslog.h>
+#endif
 
 
 // GLOBALS

@@ -25,7 +25,6 @@
 #ifdef HAVE_CONFIG_H
 	#include "dgconfig.h"
 #endif
-#include <syslog.h>
 #include <algorithm>
 #include "ListContainer.hpp"
 #include "OptionContainer.hpp"
@@ -39,6 +38,20 @@
 #include <sys/stat.h>
 #include <sys/time.h>
 #include <list>
+
+#ifdef WIN32
+#include "../lib/syslog.h"
+#else
+#include <syslog.h>
+#endif
+
+#ifndef HAVE_STRERROR_R
+#include "../lib/strerror_r.h"
+#endif
+
+#ifndef HAVE_LOCALTIME_R
+#include "../lib/localtime_r.h"
+#endif
 
 
 // GLOBALS
