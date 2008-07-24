@@ -240,23 +240,23 @@ public:
 	bool read(const char *filename);
 	void reset();
 	bool isOurWebserver(String url);
-	char *inBannedSiteList(String url, bool doblanket = false, bool ip = false, bool ssl = false);
-	char *inBannedURLList(String url, bool doblanket = false, bool ip = false, bool ssl = false);
-	bool inGreySiteList(String url, bool doblanket = false, bool ip = false, bool ssl = false);
-	bool inGreyURLList(String url, bool doblanket = false, bool ip = false, bool ssl = false);
-	bool inExceptionSiteList(String url, bool doblanket = false, bool ip = false, bool ssl = false);
-	bool inExceptionURLList(String url, bool doblanket = false, bool ip = false, bool ssl = false);
-	bool inExceptionFileSiteList(String url);
-	int inBannedRegExpURLList(String url);
-	int inExceptionRegExpURLList(String url);
-	int inBannedRegExpHeaderList(std::deque<String> &header);
-	char *inExtensionList(unsigned int list, String url);
+	char *inBannedSiteList(String url, String *rcat, bool doblanket = false, bool ip = false, bool ssl = false);
+	char *inBannedURLList(String url, String *rcat, bool doblanket = false, bool ip = false, bool ssl = false);
+	bool inGreySiteList(String url, String *rcat, bool doblanket = false, bool ip = false, bool ssl = false);
+	bool inGreyURLList(String url, String *rcat, bool doblanket = false, bool ip = false, bool ssl = false);
+	bool inExceptionSiteList(String url, String *rcat, bool doblanket = false, bool ip = false, bool ssl = false);
+	bool inExceptionURLList(String url, String *rcat, bool doblanket = false, bool ip = false, bool ssl = false);
+	bool inExceptionFileSiteList(String url, String *rcat);
+	int inBannedRegExpURLList(String url, String *rcat);
+	int inExceptionRegExpURLList(String url, String *rcat);
+	int inBannedRegExpHeaderList(std::deque<String> &header, String *rcat);
+	char *inExtensionList(unsigned int list, String url, String *rcat);
 	bool isIPHostname(String url);
 
 	// log-only lists - return category
-	const char* inLogURLList(String url);
-	const char* inLogSiteList(String url);
-	const char* inLogRegExpURLList(String url);
+	bool inLogURLList(String url, String *rcat);
+	bool inLogSiteList(String url, String *rcat);
+	bool inLogRegExpURLList(String url, String *rcat);
 	
 	// get HTML template for this group
 	HTMLTemplate *getHTMLTemplate();
@@ -304,10 +304,10 @@ private:
 	int findoptionI(const char *option);
 	std::string findoptionS(const char *option);
 	bool realitycheck(int l, int minl, int maxl, const char *emessage);
-	int inRegExpURLList(String &url, std::deque<RegExp> &list_comp, std::deque<unsigned int> &list_ref, unsigned int list);
+	int inRegExpURLList(String &url, std::deque<RegExp> &list_comp, std::deque<unsigned int> &list_ref, unsigned int list, String *rcat);
 
-	char *inURLList(String &url, unsigned int list, bool doblanket = false, bool ip = false, bool ssl = false);
-	char *inSiteList(String &url, unsigned int list, bool doblanket = false, bool ip = false, bool ssl = false);
+	char *inURLList(String &url, unsigned int list, String *rcat, bool doblanket = false, bool ip = false, bool ssl = false);
+	char *inSiteList(String &url, unsigned int list, String *rcat, bool doblanket = false, bool ip = false, bool ssl = false);
 
 	char *testBlanketBlock(unsigned int list, bool ip, bool ssl);
 };

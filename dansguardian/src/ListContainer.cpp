@@ -505,51 +505,50 @@ bool ListContainer::readAnotherItemList(const char *filename, bool startswith, i
 }
 
 // for item lists - is this item in the list?
-bool ListContainer::inList(const char *string)
+bool ListContainer::inList(const char *string, String *rcat)
 {
-	if (findInList(string) != NULL) {
+	if (findInList(string, rcat) != NULL) {
 		return true;
 	}
 	return false;
 }
 
 // for item lists - is an item in the list that ends with this string?
-bool ListContainer::inListEndsWith(const char *string)
+bool ListContainer::inListEndsWith(const char *string, String *rcat)
 {
 	if (isNow()) {
 		if (items > 0) {
 			if (search(&ListContainer::greaterThanEW,0, items - 1, string) >= 0) {
-				lastcategory = category;
+				if (rcat)
+					(*rcat) = category;
 				return true;
 			}
 		}
 		bool rc;
 		for (unsigned int i = 0; i < morelists.size(); i++) {
-			rc = (*o.lm.l[morelists[i]]).inListEndsWith(string);
-			if (rc) {
-				lastcategory = (*o.lm.l[morelists[i]]).lastcategory;
+			rc = (*o.lm.l[morelists[i]]).inListEndsWith(string, rcat);
+			if (rc)
 				return true;
-			}
 		}
 	}
 	return false;
 }
 
 // for item lists - is an item in the list that starts with this string?
-bool ListContainer::inListStartsWith(const char *string)
+bool ListContainer::inListStartsWith(const char *string, String *rcat)
 {
 	if (isNow()) {
 		if (items > 0) {
 			if (search(&ListContainer::greaterThanSW,0, items - 1, string) >= 0) {
-				lastcategory = category;
+				if (rcat)
+					(*rcat) = category;
 				return true;
 			}
 		}
 		bool rc;
 		for (unsigned int i = 0; i < morelists.size(); i++) {
-			rc = (*o.lm.l[morelists[i]]).inListStartsWith(string);
+			rc = (*o.lm.l[morelists[i]]).inListStartsWith(string, rcat);
 			if (rc) {
-				lastcategory = (*o.lm.l[morelists[i]]).lastcategory;
 				return true;
 			}
 		}
@@ -558,7 +557,7 @@ bool ListContainer::inListStartsWith(const char *string)
 }
 
 // find pointer to the part of the data array containing this string
-char *ListContainer::findInList(const char *string)
+char *ListContainer::findInList(const char *string, String *rcat)
 {
 	if (isNow()) {
 		if (items > 0) {
@@ -569,15 +568,15 @@ char *ListContainer::findInList(const char *string)
 				r = search(&ListContainer::greaterThanEWF,0, items - 1, string);
 			}
 			if (r >= 0) {
-				lastcategory = category;
+				if (rcat)
+					(*rcat) = category;
 				return (data + list[r]);
 			}
 		}
 		char *rc;
 		for (unsigned int i = 0; i < morelists.size(); i++) {
-			rc = (*o.lm.l[morelists[i]]).findInList(string);
+			rc = (*o.lm.l[morelists[i]]).findInList(string, rcat);
 			if (rc != NULL) {
-				lastcategory = (*o.lm.l[morelists[i]]).lastcategory;
 				return rc;
 			}
 		}
@@ -586,21 +585,21 @@ char *ListContainer::findInList(const char *string)
 }
 
 // find an item in the list which starts with this
-char *ListContainer::findStartsWith(const char *string)
+char *ListContainer::findStartsWith(const char *string, String *rcat)
 {
 	if (isNow()) {
 		if (items > 0) {
 			int r = search(&ListContainer::greaterThanSW,0, items - 1, string);
 			if (r >= 0) {
-				lastcategory = category;
+				if (rcat)
+					(*rcat) = category;
 				return (data + list[r]);
 			}
 		}
 		char *rc;
 		for (unsigned int i = 0; i < morelists.size(); i++) {
-			rc = (*o.lm.l[morelists[i]]).findStartsWith(string);
+			rc = (*o.lm.l[morelists[i]]).findStartsWith(string, rcat);
 			if (rc != NULL) {
-				lastcategory = (*o.lm.l[morelists[i]]).lastcategory;
 				return rc;
 			}
 		}
@@ -608,26 +607,27 @@ char *ListContainer::findStartsWith(const char *string)
 	return NULL;
 }
 
-char *ListContainer::findStartsWithPartial(const char *string)
+char *ListContainer::findStartsWithPartial(const char *string, String *rcat)
 {
 	if (isNow()) {
 		if (items > 0) {
 			int r = search(&ListContainer::greaterThanSW,0, items - 1, string);
 			if (r >= 0) {
-				lastcategory = category;
+				if (rcat)
+					(*rcat) = category;
 				return (data + list[r]);
 			}
 			if (r < -1) {
 				r = 0 - r - 2;
-				lastcategory = category;
+				if (rcat)
+					(*rcat) = category;
 				return (data + list[r]);  // nearest match
 			}
 		}
 		char *rc;
 		for (unsigned int i = 0; i < morelists.size(); i++) {
-			rc = (*o.lm.l[morelists[i]]).findStartsWithPartial(string);
+			rc = (*o.lm.l[morelists[i]]).findStartsWithPartial(string, rcat);
 			if (rc != NULL) {
-				lastcategory = (*o.lm.l[morelists[i]]).lastcategory;
 				return rc;
 			}
 		}
@@ -635,21 +635,21 @@ char *ListContainer::findStartsWithPartial(const char *string)
 	return NULL;
 }
 
-char *ListContainer::findEndsWith(const char *string)
+char *ListContainer::findEndsWith(const char *string, String *rcat)
 {
 	if (isNow()) {
 		if (items > 0) {
 			int r = search(&ListContainer::greaterThanEW,0, items - 1, string);
 			if (r >= 0) {
-				lastcategory = category;
+				if (rcat)
+					(*rcat) = category;
 				return (data + list[r]);
 			}
 		}
 		char *rc;
 		for (unsigned int i = 0; i < morelists.size(); i++) {
-			rc = (*o.lm.l[morelists[i]]).findEndsWith(string);
+			rc = (*o.lm.l[morelists[i]]).findEndsWith(string, rcat);
 			if (rc != NULL) {
-				lastcategory = (*o.lm.l[morelists[i]]).lastcategory;
 				return rc;
 			}
 		}

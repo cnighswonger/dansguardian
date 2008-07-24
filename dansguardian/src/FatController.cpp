@@ -37,6 +37,7 @@
 #include <sys/types.h>
 #include <pthread.h>
 #include <queue>
+#include <memory>
 
 #ifdef WIN32
 #include "../lib/syslog.h"
@@ -94,8 +95,8 @@ SocketArray serversockets;  // the sockets we will listen on for connections
 // Condition & mutex for accepting new client connections in child threads
 extern pthread_cond_t connevent;
 extern pthread_mutex_t connmutex;
-// Queue of server socket IDs which have pending client connections
-std::queue<int> connqueue;
+// Queue of recently accepted client connections
+std::queue<Socket*> connqueue;
 
 // Similar for logger
 extern pthread_cond_t logevent;
@@ -298,14 +299,10 @@ bool daemonise()
 int prefork(int num)
 {
 #ifdef DGDEBUG
-	std::cout << "attempting to prefork:" << num << std::endl;
+	std::cout << "attempting to prefork: " << num << std::endl;
 #endif
 	pthread_t child_threadid;
 	while (num--) {
-		if (numchildren >= o.max_children) {
-			return 2;  // too many - geddit?
-		}
-
 		int rc = pthread_create(&child_threadid, NULL, &handle_connections, NULL);
 
 		if (rc != 0) {
@@ -357,8 +354,7 @@ void* handle_connections(void *arg)
 {
 	ConnectionHandler h;  // the class that handles the connections
 	String ip;
-	reloadconfig = false;
-			
+
 #ifndef WIN32
 	tidyup_forchild();
 #endif
@@ -380,22 +376,21 @@ void* handle_connections(void *arg)
 			pthread_mutex_unlock(&connmutex);
 			break;
 		}
-		int acceptfd = connqueue.front();
+		std::auto_ptr<Socket> peersock(connqueue.front());
 		connqueue.pop();
 		pthread_mutex_unlock(&connmutex);
 
-		Socket peersock(acceptfd);
-		String peersockip (peersock.getPeerIP());
+		String peersockip (peersock->getPeerIP());
 
 		// now check the connection is actually good
-		if (acceptfd < 0 || peersockip.length() < 7) {
+		if (peersock->getFD() < 0 || peersockip.length() < 7) {
 			if (o.logconerror)
 				syslog(LOG_INFO, "Error accepting. (Ignorable)");
 			continue;
 		}
 
 		// deal with the connection
-		h.handleConnection(peersock, peersockip);
+		h.handleConnection(*(peersock.get()), peersockip);
 	}
 #ifdef DGDEBUG
 	if (reloadconfig)
@@ -1024,9 +1019,9 @@ int fc_controlit()
 	for (int i = 0; i < serversocketcount; i++) {
 		// if the socket fd is not +ve then the socket creation failed
 #ifdef WIN32
-		if (serversockfds[i] < 0) {
-#else
 		if (serversockfds[i] == INVALID_SOCKET) {
+#else
+		if (serversockfds[i] < 0) {
 #endif
 			if (!is_daemonised) {
 				std::cerr << "Error creating server socket " << i << std::endl;
@@ -1270,7 +1265,7 @@ int fc_controlit()
 	// consecutivly.
 
 	numchildren = 0;
-	rc = prefork(o.min_children);
+	rc = prefork(o.max_children);
 
 #ifdef WIN32
 	Sleep(1000);
@@ -1294,55 +1289,6 @@ int fc_controlit()
 	syslog(LOG_INFO, "Started sucessfully.");
 
 	while (failurecount < 30 && !ttg && !reloadconfig) {
-
-		// XXX - This needs to be done differently, we can't pull the current config
-		// out from underneath the child threads.  Go over to a "watchdog" process model,
-		// a la censord?
-
-		// loop, essentially, for ever until 30
-		// consecutive errors in which case something
-		// is badly wrong.
-		// OR, its timetogo - got a sigterm
-		// OR, we need to exit to reread config
-		/*if (gentlereload) {
-#ifdef DGDEBUG
-			std::cout << "gentle reload activated" << std::endl;
-#endif
-			o.deleteFilterGroups();
-			if (!o.readFilterGroupConf()) {
-				reloadconfig = true;  // filter groups problem so lets
-				// try and reload entire config instead
-				// if that fails it will bomb out
-				o.lm.garbageCollect();
-			} else {
-				o.lm.garbageCollect();
-				if (o.use_filter_groups_list) {
-					o.filter_groups_list.reset();
-					if (!o.doReadItemList(o.filter_groups_list_location.c_str(),&(o.filter_groups_list),"filtergroupslist",true))
-						reloadconfig = true;  // filter groups problem...
-				}
-				if (!reloadconfig) {
-					o.deletePlugins(o.csplugins);
-					if (!o.loadCSPlugins())
-						reloadconfig = true;  // content scan plugs problem
-					if (!reloadconfig) {
-						o.deletePlugins(o.authplugins);
-						if (!o.loadAuthPlugins())
-							reloadconfig = true;  // auth plugs problem
-					}
-					if (!reloadconfig) {
-						hup_allchildren();
-						prefork(o.min_children);
-						gentlereload = false;
-						// everything ok - no full reload needed
-						// clear gentle reload flag for next run of the loop
-					}
-				}
-			}
-			flush_urlcache();
-			continue;
-		}*/
-
 #ifdef HAVE_POLL_H
 		for (i = 0; i < serversocketcount; i++) {
 			pollfds[i].revents = 0;
@@ -1378,7 +1324,7 @@ int fc_controlit()
 			if (o.logconerror)
 			{
 				char errstr[1024];
-				syslog(LOG_ERR, "Error polling child process sockets: %d, %s", socket_errno, strerror_r(socket_errno, errstr, 1024));
+				syslog(LOG_ERR, "Error polling server sockets: %d, %s", socket_errno, strerror_r(socket_errno, errstr, 1024));
 			}
 			failurecount++;  // log the error/failure
 			continue;  // then continue with the looping
@@ -1387,84 +1333,44 @@ int fc_controlit()
 		if (rc > 0) {
 			for (i = 0; i < serversocketcount; i++) {
 #ifdef HAVE_POLL_H
-				if ((pollfds[i].revents & (POLLERR | POLLHUP | POLLNVAL)) > 0) {
-#else
-				if (FD_ISSET(serversockfds[i], &selecterrfds)) {
-#endif
-					ttg = true;
-					syslog(LOG_ERR, "Error with main listening socket.  Exiting.");
-					continue;
-				}
-#ifdef HAVE_POLL_H
 				if ((pollfds[i].revents & POLLIN) > 0) {
 #else
 				if (FD_ISSET(serversockfds[i], &selectfds)) {
 #endif
 					// socket ready to accept() a connection
 					failurecount = 0;  // something is clearly working so reset count
-					/*if (freechildren < 1 && numchildren < o.max_children) {
-						if (!preforked) {
-							int num = o.prefork_children;
-							if ((o.max_children - numchildren) < num)
-								num = o.max_children - numchildren;
-							if (o.logchildprocs)
-								syslog(LOG_ERR, "Under load - Spawning %d process(es)", num);
-							rc = prefork(num);
-							if (rc < 0) {
-								syslog(LOG_ERR, "Error forking %d extra process(es).", num);
-								failurecount++;
-							}
-							preforked = true;
-						}
-						continue;
-					}
-					if (freechildren > 0) {
-#ifdef DGDEBUG
-						std::cout<<"telling child to accept "<<(i-o.max_children)<<std::endl;
-#endif
-						tellchild_accept(getfreechild(), i - o.max_children);
-					} else {
-						usleep(1000);
-					}*/
-					// XXX - Needs to be replaced with some form of check to see if 
-					// there are no threads currently waiting.  Perhaps just a simple integer
-					// which starts at 0, is incremented when a thread is busy, and decremented
-					// when a thread starts waiting - if this is not < numchildren, we are
-					// "under load" in the terminology used here.
 
-					int newsock = accept(serversockfds[i], NULL, NULL);
+					Socket* newsock = serversockets[i]->accept();
 					pthread_mutex_lock(&connmutex);
 					if (ttg || reloadconfig)
 						break;
+					// Wait if we have too many active connections
+					while (connqueue.size() > 10)
+					{
+						pthread_mutex_unlock(&connmutex);
+#ifdef WIN32
+						Sleep(1000);
+#else
+						sleep(1);
+#endif
+						pthread_mutex_lock(&connmutex);
+					}
+
 					connqueue.push(newsock);
 					pthread_cond_signal(&connevent);
 					pthread_mutex_unlock(&connmutex);
 				}
+#ifdef HAVE_POLL_H
+				else if (pollfds[i].revents) {
+#else
+				if (FD_ISSET(serversockfds[i], &selecterrfds)) {
+#endif
+					ttg = true;
+					syslog(LOG_ERR, "Error with main listening socket.  Exiting.");
+					break;
+				}
 			}
 		}
-
-		/*if (freechildren < o.minspare_children && !preforked && numchildren < o.max_children) {
-			if (o.logchildprocs)
-				syslog(LOG_ERR, "Fewer than %d free children - Spawning %d process(es)", o.minspare_children, o.prefork_children);
-			rc = prefork(o.prefork_children);
-			preforked = true;
-			if (rc < 0) {
-				syslog(LOG_ERR, "Error forking preforkchildren extra processes.");
-				failurecount++;
-			}
-		}
-
-		if (freechildren <= o.maxspare_children) {
-			time(&tmaxspare);
-		}
-		if (freechildren > o.maxspare_children) {
-			time(&tnow);
-			if ((tnow - tmaxspare) > (2 * 60)) {	// 2 * 60
-				if (o.logchildprocs)
-					syslog(LOG_ERR, "More than %d free children - Killing %d process(es)", o.maxspare_children, freechildren - o.maxspare_children);
-				cullchildren(freechildren - o.maxspare_children);
-			}
-		}*/
 	}
 	cullchildren(numchildren);  // remove the fork pool of spare children
 #ifndef WIN32
@@ -1488,7 +1394,10 @@ int fc_controlit()
 	urlcache.flush();
 
 	while (!connqueue.empty())
+	{
+		delete connqueue.front();
 		connqueue.pop();
+	}
 
 	while (!logqueue.empty())
 	{

@@ -458,7 +458,6 @@ bool DataBuffer::contentRegExp(int filtergroup)
 	unsigned int s = (*o.fg[filtergroup]).content_regexp_list_comp.size();
 	unsigned int matches;
 	unsigned int submatch, submatches;
-	RegExp *re;
 	String *replacement;
 	unsigned int replen;
 	int sizediff;
@@ -471,21 +470,22 @@ bool DataBuffer::contentRegExp(int filtergroup)
 	std::queue<newreplacement*> matchqueue;
 
 	for (i = 0; i < s; i++) {
-		re = &((*o.fg[filtergroup]).content_regexp_list_comp[i]);
-		if (re->match(data)) {
+		std::vector<std::string> results;
+		std::vector<unsigned int> offsets;
+		std::vector<unsigned int> lengths;
+		if (o.fg[filtergroup]->content_regexp_list_comp[i].match(data, &results, &offsets, &lengths)) {
 			replacement = &((*o.fg[filtergroup]).content_regexp_list_rep[i]);
-			//replen = replacement->length();
-			matches = re->numberOfMatches();
+			matches = results.size();
 
 			sizediff = 0;
 			m = 0;
 			for (j = 0; j < matches; j++) {
-				srcoff = re->offset(j);
-				matchlen = re->length(j);
+				srcoff = offsets[j];
+				matchlen = lengths[j];
 
 				// Count matches for ()'s
 				for (submatches = 0; j+submatches+1 < matches; submatches++)
-					if (re->offset(j+submatches+1) + re->length(j+submatches+1) > srcoff + matchlen)
+					if (offsets[j+submatches+1] + lengths[j+submatches+1] > srcoff + matchlen)
 						break;
 
 				// \1 and $1 replacement
@@ -502,7 +502,7 @@ bool DataBuffer::contentRegExp(int filtergroup)
 						submatch = (*replacement)[++k] - '0';
 						// add submatch contents to replacement string
 						if (submatch <= submatches) {
-							newrep->replacement += re->result(j + submatch).c_str();
+							newrep->replacement += results[j + submatch].c_str();
 						}
 					} else {
 						// unescape \\ and \$, and add other non-backreference characters
@@ -514,7 +514,7 @@ bool DataBuffer::contentRegExp(int filtergroup)
 				matchqueue.push(newrep);
 
 				// update size difference between original and modified content
-				sizediff -= re->length(j);
+				sizediff -= lengths[j];
 				sizediff += newrep->replacement.length();
 				// skip submatches to next top level match
 				j += submatches;
@@ -535,7 +535,7 @@ bool DataBuffer::contentRegExp(int filtergroup)
 			newreplacement* newrep;
 			for (j = 0; j < matches; j++) {
 				newrep = matchqueue.front();
-				nextoffset = re->offset(newrep->match);
+				nextoffset = offsets[newrep->match];
 				if (nextoffset > srcoff) {
 					memcpy(dstpos, data + srcoff, nextoffset - srcoff);
 					dstpos += nextoffset - srcoff;
@@ -544,7 +544,7 @@ bool DataBuffer::contentRegExp(int filtergroup)
 				replen = newrep->replacement.length();
 				memcpy(dstpos, newrep->replacement.toCharArray(), replen);
 				dstpos += replen;
-				srcoff += re->length(newrep->match);
+				srcoff += lengths[newrep->match];
 				delete newrep;
 				matchqueue.pop();
 			}

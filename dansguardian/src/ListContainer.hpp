@@ -56,7 +56,6 @@ public:
 	int weightedpfiledate;
 	String sourcefile;  // used for non-phrase lists only
 	String category;
-	String lastcategory;
 	std::vector<unsigned int> morelists;  // has to be non private as reg exp compiler needs to access these
 
 	ListContainer();
@@ -67,15 +66,15 @@ public:
 	bool readPhraseList(const char *filename, bool isexception, int catindex = -1, int timeindex = -1);
 	bool readItemList(const char *filename, bool startswith, int filters);
 
-	bool inList(const char *string);
-	bool inListEndsWith(const char *string);
-	bool inListStartsWith(const char *string);
+	bool inList(const char *string, String *rcat = NULL);
+	bool inListEndsWith(const char *string, String *rcat = NULL);
+	bool inListStartsWith(const char *string, String *rcat = NULL);
 
-	char *findInList(const char *string);
+	char *findInList(const char *string, String *rcat = NULL);
 
-	char *findEndsWith(const char *string);
-	char *findStartsWith(const char *string);
-	char *findStartsWithPartial(const char *string);
+	char *findEndsWith(const char *string, String *rcat = NULL);
+	char *findStartsWith(const char *string, String *rcat = NULL);
+	char *findStartsWithPartial(const char *string, String *rcat = NULL);
 
 
 	int getListLength()

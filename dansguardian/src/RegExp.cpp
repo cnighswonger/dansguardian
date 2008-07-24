@@ -30,28 +30,13 @@
 #include <iostream>
 
 // constructor - set defaults
-RegExp::RegExp():imatched(false), wascompiled(false)
+RegExp::RegExp():wascompiled(false)
 {
 }
 
 // copy constructor
 RegExp::RegExp(const RegExp & r)
 {
-	results.clear();
-	offsets.clear();
-	lengths.clear();
-	unsigned int i;
-	for (i = 0; i < r.results.size(); i++) {
-		results.push_back(r.results[i]);
-	}
-	for (i = 0; i < r.offsets.size(); i++) {
-		offsets.push_back(r.offsets[i]);
-	}
-	for (i = 0; i < r.lengths.size(); i++) {
-		lengths.push_back(r.lengths[i]);
-	}
-
-	imatched = r.imatched;
 	wascompiled = r.wascompiled;
 	searchstring = r.searchstring;
 	if (wascompiled == true) {
@@ -61,7 +46,6 @@ RegExp::RegExp(const RegExp & r)
 		if (regcomp(&reg, searchstring.c_str(), REG_ICASE | REG_EXTENDED) != 0 ) {
 #endif
 			regfree(&reg);
-			imatched = false;
 			wascompiled = false;
 		}
 	}
@@ -75,46 +59,6 @@ RegExp::~RegExp()
 	}
 }
 
-// return the i'th match result
-std::string RegExp::result(int i)
-{
-	if (i >= (signed) results.size() || i < 0) {	// reality check
-		return "";  // maybe exception?
-	}
-	return results[i];
-}
-
-// get the position of the i'th match result in the overall text
-unsigned int RegExp::offset(int i)
-{
-	if (i >= (signed) offsets.size() || i < 0) {	// reality check
-		return 0;  // maybe exception?
-	}
-	return offsets[i];
-}
-
-// get the length of the i'th match
-unsigned int RegExp::length(int i)
-{
-	if (i >= (signed) lengths.size() || i < 0) {	// reality check
-		return 0;  // maybe exception?
-	}
-	return lengths[i];
-}
-
-// how many matches did the last run generate?
-int RegExp::numberOfMatches()
-{
-	int i = (signed) results.size();
-	return i;
-}
-
-// did it, in fact, generate any?
-bool RegExp::matched()
-{
-	return imatched;  // regexp matches only - not search/replace
-}
-
 // compile the given regular expression
 bool RegExp::comp(const char *exp)
 {
@@ -122,10 +66,6 @@ bool RegExp::comp(const char *exp)
 		regfree(&reg);
 		wascompiled = false;
 	}
-	results.clear();
-	offsets.clear();
-	lengths.clear();
-	imatched = false;
 #ifdef DGDEBUG
 	std::cout << "Compiling " << exp << std::endl;
 #endif
@@ -150,63 +90,58 @@ bool RegExp::comp(const char *exp)
 }
 
 // match the given text against the pre-compiled expression
-bool RegExp::match(const char *text)
+bool RegExp::match(const char *text, std::vector<std::string> *results, std::vector<unsigned int> *offsets, std::vector<unsigned int> *lengths)
 {
 	if (!wascompiled) {
 		return false;  // need exception?
 	}
 	char *pos = (char *) text;
-	int i;
-	results.clear();
-	offsets.clear();
-	lengths.clear();
-	imatched = false;
 	regmatch_t *pmatch = new regmatch_t[reg.re_nsub + 1];  // to hold result
 	if (!pmatch) {  // if it failed
 		delete[]pmatch;
-		imatched = false;
 		return false;
 		// exception?
 	}
 	if (regexec(&reg, pos, reg.re_nsub + 1, pmatch, 0)) {  // run regex
 		delete[]pmatch;
-		imatched = false;
-//        #ifdef DGDEBUG
-//            std::cout << "no match for:" << searchstring << std::endl;
-//        #endif
 		return false;  // if no match
 	}
-	size_t matchlen;
-	char *submatch;
-	unsigned int largestoffset;
-	int error = 0;
-	while (error == 0) {
-		largestoffset = 0;
-		for (i = 0; i <= (signed) reg.re_nsub; i++) {
-			if (pmatch[i].rm_so != -1) {
-				matchlen = pmatch[i].rm_eo - pmatch[i].rm_so;
-				submatch = new char[matchlen + 1];
-				strncpy(submatch, pos + pmatch[i].rm_so, matchlen);
-				submatch[matchlen] = '\0';
-				results.push_back(std::string(submatch));
-				offsets.push_back(pmatch[i].rm_so + (pos - text));
-				lengths.push_back(matchlen);
-				delete[]submatch;
-				if ((pmatch[i].rm_so + matchlen) > largestoffset) {
-					largestoffset = pmatch[i].rm_so + matchlen;
+	if (results || offsets || lengths)
+	{
+		size_t matchlen;
+		char *submatch;
+		unsigned int largestoffset;
+		int error = 0;
+		while (error == 0) {
+			largestoffset = 0;
+			for (unsigned int i = 0; i <= reg.re_nsub; i++) {
+				if (pmatch[i].rm_so != -1) {
+					matchlen = pmatch[i].rm_eo - pmatch[i].rm_so;
+					submatch = new char[matchlen + 1];
+					strncpy(submatch, pos + pmatch[i].rm_so, matchlen);
+					submatch[matchlen] = '\0';
+					if (results)
+						results->push_back(std::string(submatch));
+					if (offsets)
+						offsets->push_back(pmatch[i].rm_so + (pos - text));
+					if (lengths)
+						lengths->push_back(matchlen);
+					delete[]submatch;
+					if ((pmatch[i].rm_so + matchlen) > largestoffset) {
+						largestoffset = pmatch[i].rm_so + matchlen;
+					}
 				}
 			}
-		}
-		if (largestoffset > 0) {
-			pos += largestoffset;
-			error = regexec(&reg, pos, reg.re_nsub + 1, pmatch, REG_NOTBOL);
-		} else {
-			error = -1;
-		}
+			if (largestoffset > 0) {
+				pos += largestoffset;
+				error = regexec(&reg, pos, reg.re_nsub + 1, pmatch, REG_NOTBOL);
+			} else {
+				error = -1;
+			}
 
+		}
+		delete[]pmatch;
 	}
-	imatched = true;
-	delete[]pmatch;
 #ifdef DGDEBUG
 	std::cout << "match(s) for:" << searchstring << std::endl;
 #endif
@@ -214,7 +149,7 @@ bool RegExp::match(const char *text)
 }
 
 // My own version of STL::search() which seems to be 5-6 times faster
-char *RegExp::search(char *file, char *fileend, char *phrase, char *phraseend)
+char *fsearch(char *file, char *fileend, char *phrase, char *phraseend)
 {
 
 	int j, l;  // counters

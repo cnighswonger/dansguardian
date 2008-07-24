@@ -34,7 +34,7 @@
 #endif
 
 #include <string>
-#include <deque>
+#include <vector>
 
 
 // DECLARATIONS
@@ -52,32 +52,10 @@ public:
 	// compile the given regular expression
 	bool comp(const char *exp);
 	// match the given text against the pre-compiled expression
-	bool match(const char *text);
+	bool match(const char *text, std::vector<std::string> *results = NULL, std::vector<unsigned int> *offsets = NULL, std::vector<unsigned int> *lengths = NULL);
 	
-	// how many matches did the last run generate?
-	int numberOfMatches();
-	// did it generate any at all?
-	bool matched();
-	
-	// the i'th match from the last run
-	std::string result(int i);
-	// position of the i'th match in the overall text
-	unsigned int offset(int i);
-	// length of the i'th match
-	unsigned int length(int i);
-	
-	// faster equivalent of STL::Search
-	char *search(char *file, char *fileend, char *phrase, char *phraseend);
 
 private:
-	// the match results, their positions in the text & their lengths
-	std::deque<std::string> results;
-	std::deque<unsigned int> offsets;
-	std::deque<unsigned int> lengths;
-
-	// have we matched something yet?
-	bool imatched;
-
 	// the expression itself
 	regex_t reg;
 	// whether it's been pre-compiled
@@ -87,5 +65,8 @@ private:
 	// for debugging purposes?)
 	std::string searchstring;
 };
+	
+// faster equivalent of STL::Search
+char *fsearch(char *file, char *fileend, char *phrase, char *phraseend);
 
 #endif

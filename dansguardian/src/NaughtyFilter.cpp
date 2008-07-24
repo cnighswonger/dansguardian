@@ -399,7 +399,7 @@ void NaughtyFilter::checkme(DataBuffer *body, String &url, String &domain)
 #ifdef DGDEBUG
 		std::cout << "Checking smart content" << std::endl;
 #endif
-		checkphrase(bodynohtml, j);
+		checkphrase(bodynohtml, j - 1);
 
 		// second time round the case loop (if there is a second time),
 		// do preserve case (exotic encodings)
@@ -454,20 +454,22 @@ void NaughtyFilter::checkphrase(char *file, int l, String *url, String *domain)
 		char* j;
 
 		// check for absolute URLs
-		if (absurl_re.match(file)) {
+		std::vector<std::string> results;
+		if (absurl_re.match(file, &results)) {
 			// each match generates 2 results (because of the brackets in the regex), we're only interested in the first
 #ifdef DGDEBUG
-			std::cout << "Found " << absurl_re.numberOfMatches()/2 << " absolute URLs:" << std::endl;
+			std::cout << "Found " << results.size()/2 << " absolute URLs:" << std::endl;
 #endif
-			for (int i = 0; i < absurl_re.numberOfMatches(); i+=2) {
+			for (unsigned int i = 0; i < results.size(); i+=2) {
 				// chop off quotes
-				u = absurl_re.result(i);
+				u = results[i];
 				u = u.subString(1,u.length()-2);
 #ifdef DGDEBUG
 				std::cout << u << std::endl;
 #endif
-				if ((((j = o.fg[filtergroup]->inBannedSiteList(u)) != NULL) && !(o.lm.l[o.fg[filtergroup]->banned_site_list]->lastcategory.contains("ADs")))
-					|| (((j = o.fg[filtergroup]->inBannedURLList(u)) != NULL) && !(o.lm.l[o.fg[filtergroup]->banned_url_list]->lastcategory.contains("ADs"))))
+				String cat;
+				if ((((j = o.fg[filtergroup]->inBannedSiteList(u, &cat)) != NULL) && !(cat.contains("ADs")))
+					|| (((j = o.fg[filtergroup]->inBannedURLList(u, &cat)) != NULL) && !(cat.contains("ADs"))))
 				{
 					// duplicate checking
 					// checkme: this should really be being done *before* we search the lists.
@@ -499,7 +501,8 @@ void NaughtyFilter::checkphrase(char *file, int l, String *url, String *domain)
 		found.clear();
 
 		// check for relative URLs
-		if (relurl_re.match(file)) {
+		results.clear();
+		if (relurl_re.match(file, &results)) {
 			// we don't want any parameters on the end of the current URL, since we append to it directly
 			// when forming absolute URLs from relative ones. we do want a / on the end, too.
 			String currurl(*url);
@@ -510,10 +513,10 @@ void NaughtyFilter::checkphrase(char *file, int l, String *url, String *domain)
 
 			// each match generates 2 results (because of the brackets in the regex), we're only interested in the first
 #ifdef DGDEBUG
-			std::cout << "Found " << relurl_re.numberOfMatches()/2 << " relative URLs:" << std::endl;
+			std::cout << "Found " << results.size()/2 << " relative URLs:" << std::endl;
 #endif
-			for (int i = 0; i < relurl_re.numberOfMatches(); i+=2) {
-				u = relurl_re.result(i);
+			for (unsigned int i = 0; i < results.size(); i+=2) {
+				u = results[i];
 				
 				// can't find a way to negate submatches in PCRE, so it is entirely possible
 				// that some absolute URLs have made their way into this list. we don't want them.
@@ -536,8 +539,9 @@ void NaughtyFilter::checkphrase(char *file, int l, String *url, String *domain)
 #ifdef DGDEBUG
 				std::cout << "absolute form: " << u << std::endl;
 #endif
-				if ((((j = o.fg[filtergroup]->inBannedSiteList(u)) != NULL) && !(o.lm.l[o.fg[filtergroup]->banned_site_list]->lastcategory.contains("ADs")))
-					|| (((j = o.fg[filtergroup]->inBannedURLList(u)) != NULL) && !(o.lm.l[o.fg[filtergroup]->banned_url_list]->lastcategory.contains("ADs"))))
+				String cat;
+				if ((((j = o.fg[filtergroup]->inBannedSiteList(u, &cat)) != NULL) && !(cat.contains("ADs")))
+					|| (((j = o.fg[filtergroup]->inBannedURLList(u, &cat)) != NULL) && !(cat.contains("ADs"))))
 				{
 					// duplicate checking
 					// checkme: this should really be being done *before* we search the lists.
@@ -842,14 +846,14 @@ void NaughtyFilter::checkphrase(char *file, int l, String *url, String *domain)
 		bool nonempty = false;
 		bool belowthreshold = false;
 		String categories;
-		std::deque<listent> sortable_listcategories;
+		std::vector<listent> sortable_listcategories;
 		catcurrent = listcategories.begin();
 		while (catcurrent != listcategories.end()) {
 			sortable_listcategories.push_back(catcurrent->second);
 			catcurrent++;
 		}
 		std::sort(sortable_listcategories.begin(), sortable_listcategories.end());
-		std::deque<listent>::iterator k = sortable_listcategories.begin();
+		std::vector<listent>::iterator k = sortable_listcategories.begin();
 		while (k != sortable_listcategories.end()) {
 			// if category display threshold is in use, apply it
 			if (!belowthreshold && (o.fg[filtergroup]->category_threshold > 0)
@@ -900,12 +904,12 @@ void NaughtyFilter::checkphrase(char *file, int l, String *url, String *domain)
 // data must also have been NULL terminated.
 void NaughtyFilter::checkPICS(char *file)
 {
-	(*o.fg[filtergroup]).pics1.match(file);
-	if (!(*o.fg[filtergroup]).pics1.matched()) {
+	std::vector<std::string> results;
+	if (!(*o.fg[filtergroup]).pics1.match(file, &results)) {
 		return;
 	}			// exit if not found
-	for (int i = 0; i < (*o.fg[filtergroup]).pics1.numberOfMatches(); i++) {
-		checkPICSrating((*o.fg[filtergroup]).pics1.result(i));  // pass on result for further
+	for (std::vector<std::string>::iterator i = results.begin(); i != results.end(); ++i) {
+		checkPICSrating(*i);  // pass on result for further
 		// tests
 	}
 }
@@ -913,15 +917,18 @@ void NaughtyFilter::checkPICS(char *file)
 // the meat of the process 
 void NaughtyFilter::checkPICSrating(std::string label)
 {
-	(*o.fg[filtergroup]).pics2.match(label.c_str());
-	if (!(*o.fg[filtergroup]).pics2.matched()) {
+	std::vector<std::string> results;
+	std::vector<unsigned int> offsets;
+	std::vector<unsigned int> lengths;
+	if (!(*o.fg[filtergroup]).pics2.match(label.c_str(), &results, &offsets, &lengths)) {
 		return;
 	}			// exit if not found
 	String lab(label.c_str());  // convert to a String for easy manip
 	String r;
 	String service;
-	for (int i = 0; i < (*o.fg[filtergroup]).pics2.numberOfMatches(); i++) {
-		r = (*o.fg[filtergroup]).pics2.result(i).c_str();  // ditto
+	int i = 0;
+	for (std::vector<std::string>::iterator j = results.begin(); j != results.end(); ++j) {
+		r = j->c_str();  // ditto
 		r = r.after("(");
 		r = r.before(")");  // remove the brackets
 
@@ -931,9 +938,9 @@ void NaughtyFilter::checkPICSrating(std::string label)
 		// It is possible to have multiple ratings in one pics-label.
 		// This is done on e.g. http://www.jesusfilm.org/
 		if (i == 0) {
-			service = lab.subString(0, (*o.fg[filtergroup]).pics2.offset(i));
+			service = lab.subString(0, offsets[i]);
 		} else {
-			service = lab.subString((*o.fg[filtergroup]).pics2.offset(i - 1) + (*o.fg[filtergroup]).pics2.length(i - 1), (*o.fg[filtergroup]).pics2.offset(i));
+			service = lab.subString(offsets[i - 1] + lengths[i - 1], offsets[i]);
 		}
 
 		if (service.contains("safesurf")) {
@@ -992,6 +999,8 @@ void NaughtyFilter::checkPICSrating(std::string label)
 		}
 		// check label for word denoting rating system then pass on to the
 		// appropriate function the rating String.
+
+		++i;
 	}
 }
 

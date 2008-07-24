@@ -331,13 +331,9 @@ void BaseSocket::checkForInput(int timeout, bool honour_reloadconfig) throw(std:
 	std::set<SOCKET> fdSet;
 	fdSet.insert(sck);
 	if ((rc = selectEINTR(&fdSet, NULL, NULL, &t, honour_reloadconfig)) < 1) {
-		int sockopterr;
-		socklen_t sl = sizeof(int);
-		getsockopt(sck, SOL_SOCKET, SO_ERROR, (SOCKOPT) &sockopterr, &sl);
 		char errstr[1024];
-		syslog(LOG_ERR, "select() on input: getsockopt %d, select rc %d, socket errno %d, %s", sockopterr, rc, socket_errno, strerror_r(socket_errno, errstr, 1024));
 		std::string err("select() on input: ");
-		throw std::runtime_error(err + (socket_errno ? errstr : "unknown/timeout"));
+		throw std::runtime_error(err + (socket_errno ? strerror_r(socket_errno, errstr, 1024) : "unknown/timeout"));
 	}
 }
 

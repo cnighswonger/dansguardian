@@ -208,28 +208,8 @@ bool OptionContainer::read(const char *filename, int type)
 		if (!realitycheck(max_logitem_length, 0, 0, "maxlogitemlength")) {
 			return false;
 		}
-		max_children = findoptionI("maxchildren");
-		if (!realitycheck(max_children, 4, 0, "maxchildren")) {
-			return false;
-		}		// check its a reasonable value
-		min_children = findoptionI("minchildren");
-		if (!realitycheck(min_children, 1, max_children-1, "minchildren")) {
-			return false;
-		}		// check its a reasonable value
-		maxspare_children = findoptionI("maxsparechildren");
-		if (!realitycheck(maxspare_children, min_children, max_children, "maxsparechildren")) {
-			return false;
-		}		// check its a reasonable value
-		prefork_children = findoptionI("preforkchildren");
-		if (!realitycheck(prefork_children, 1, max_children, "preforkchildren")) {
-			return false;
-		}		// check its a reasonable value
-		minspare_children = findoptionI("minsparechildren");
-		if (!realitycheck(minspare_children, 0, maxspare_children-1, "minsparechildren")) {
-			return false;
-		}		// check its a reasonable value
-		maxage_children = findoptionI("maxagechildren");
-		if (!realitycheck(maxage_children, 1, 0, "maxagechildren")) {
+		max_children = findoptionI("numthreads");
+		if (!realitycheck(max_children, 1, 0, "numthreads")) {
 			return false;
 		}		// check its a reasonable value
 
@@ -450,11 +430,6 @@ bool OptionContainer::read(const char *filename, int type)
 			logconerror = true;
 		} else {
 			logconerror = false;
-		}
-		if (findoptionS("logchildprocesshandling") == "on") {
-			logchildprocs = true;
-		} else {
-			logchildprocs = false;
 		}
 
 		if (findoptionS("reverseaddresslookups") == "on") {

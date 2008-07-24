@@ -494,46 +494,8 @@ usexforwardedfor = off
 logconnectionhandlingerrors = on
 
 
-
-# Fork pool options
-
-# If on, this causes DG to write to the log file whenever child processes are
-# created or destroyed (other than by crashes). This information can help in
-# understanding and tuning the following parameters, but is not generally
-# useful in production.
-logchildprocesshandling = off
-
-# sets the maximum number of processes to spawn to handle the incoming
-# connections.  Max value usually 250 depending on OS.
-# On large sites you might want to try 180.
-maxchildren = 120
-
-
-# sets the minimum number of processes to spawn to handle the incoming connections.
-# On large sites you might want to try 32.
-minchildren = 8
-
-
-# sets the minimum number of processes to be kept ready to handle connections.
-# On large sites you might want to try 8.
-minsparechildren = 4
-
-
-# sets the minimum number of processes to spawn when it runs out
-# On large sites you might want to try 10.
-preforkchildren = 6
-
-
-# sets the maximum number of processes to have doing nothing.
-# When this many are spare it will cull some of them.
-# On large sites you might want to try 64.
-maxsparechildren = 32
-
-
-# sets the maximum age of a child process before it croaks it.
-# This is the number of connections they handle before exiting.
-# On large sites you might want to try 10000.
-maxagechildren = 500
+# sets the number of threads to spawn to handle the incoming connections.
+numthreads = 20
 
 
 # Sets the maximum number client IP addresses allowed to connect at once.

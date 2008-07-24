@@ -333,9 +333,9 @@ int commandlineinstance::scanFile(HTTPHeader * requestheader, HTTPHeader * doche
 	lastvirusname = "Unknown";
 
 	if (usevirusregexp) {
-		virusregexp.match(result.c_str());
-		if (virusregexp.matched()) {
-			lastvirusname = virusregexp.result(submatch);
+		std::deque<std::string> results;
+		if (virusregexp.match(result.c_str(), &results)) {
+			lastvirusname = results[submatch];
 			return DGCS_INFECTED;
 		}
 	}

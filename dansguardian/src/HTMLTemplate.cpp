@@ -88,11 +88,13 @@ bool HTMLTemplate::readTemplateFile(const char *filename, const char *placeholde
 		std::getline(templatefile, linebuffer);
 		line = linebuffer.c_str();
 		// look for placeholders
-		re.match(line.toCharArray());
-		while (re.numberOfMatches() > 0) {
+		std::vector<std::string> results;
+		std::vector<unsigned int> offsets;
+		re.match(line.toCharArray(), &results, &offsets);
+		while (!results.empty()) {
 			// whenever we find one, push the text before it onto the list, then the placeholder, then the text after it
-			offset = re.offset(0);
-			result = re.result(0).c_str();
+			offset = offsets[0];
+			result = results[0].c_str();
 			if (offset > 0) {
 				push(line.subString(0, offset));
 				push(result);
@@ -101,7 +103,9 @@ bool HTMLTemplate::readTemplateFile(const char *filename, const char *placeholde
 				push(result);
 				line = line.subString(result.length(), line.length() - result.length());
 			}
-			re.match(line.toCharArray());
+			results.clear();
+			offsets.clear();
+			re.match(line.toCharArray(), &results, &offsets);
 		}
 		// if any text remains, or we didn't find a placeholder, push the remainder of the line
 		if (line.length() > 0) {

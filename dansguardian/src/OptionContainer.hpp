@@ -61,7 +61,6 @@ public:
 	bool log_client_hostnames;
 	bool use_xforwardedfor;
 	bool logconerror;
-	bool logchildprocs;
 	int url_cache_number;
 	int url_cache_age;
 	int phrase_filter_mode;
@@ -74,11 +73,6 @@ public:
 	std::deque<String> filter_ip;
 	int ll;
 	int max_children;
-	int min_children;
-	int maxspare_children;
-	int prefork_children;
-	int minspare_children;
-	int maxage_children;
 	std::string daemon_user_name;
 	std::string daemon_group_name;
 	int proxy_user;

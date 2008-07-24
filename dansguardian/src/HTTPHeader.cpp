@@ -451,7 +451,6 @@ void HTTPHeader::setURL(String &url) {
 // Does a regexp search and replace.
 // urlRegExp Code originally from from Ton Gorter 2004
 bool HTTPHeader::regExp(String& line, std::deque<RegExp>& regexp_list, std::deque<String>& replacement_list) {
-	RegExp *re;
 	String replacement;
 	String repstr;
 	String newLine;
@@ -469,16 +468,18 @@ bool HTTPHeader::regExp(String& line, std::deque<RegExp>& regexp_list, std::dequ
 	// iterate over our list of precompiled regexes
 	for (i = 0; i < s; i++) {
 		newLine = "";
-		re = &(regexp_list[i]);
-		if (re->match(line.toCharArray())) {
+		std::vector<std::string> results;
+		std::vector<unsigned int> offsets;
+		std::vector<unsigned int> lengths;
+		if (regexp_list[i].match(line.toCharArray(), &results, &offsets, &lengths)) {
 			repstr = replacement_list[i];
-			matches = re->numberOfMatches();
+			matches = results.size();
 
 			srcoff = 0;
 
 			for (j = 0; j < matches; j++) {
-				nextoffset = re->offset(j);
-				matchlen = re->length(j);
+				nextoffset = offsets[j];
+				matchlen = lengths[j];
 				
 				// copy next chunk of unmodified data
 				if (nextoffset > srcoff) {
@@ -488,7 +489,7 @@ bool HTTPHeader::regExp(String& line, std::deque<RegExp>& regexp_list, std::dequ
 
 				// Count number of submatches (brackets) in replacement string
 				for (submatches = 0; j+submatches+1 < matches; submatches++)
-					if (re->offset(j+submatches+1) + re->length(j+submatches+1) > srcoff + matchlen)
+					if (offsets[j+submatches+1] + lengths[j+submatches+1] > srcoff + matchlen)
 						break;
 
 				// \1 and $1 replacement
@@ -498,7 +499,7 @@ bool HTTPHeader::regExp(String& line, std::deque<RegExp>& regexp_list, std::dequ
 					if ((repstr[k] == '\\' || repstr[k] == '$') && repstr[k+1] >= '1' && repstr[k+1] <= '9') {
 						match = repstr[++k] - '0';
 						if (match <= submatches) {
-							replacement += re->result(j + match).c_str();
+							replacement += results[j + match].c_str();
 						}
 					} else {
 						// unescape \\ and \$, and add non-backreference characters to string
@@ -1198,29 +1199,31 @@ String HTTPHeader::decode(const String &s, bool decodeAll)
 #ifdef DGDEBUG
 	std::cout << "decoding url" << std::endl;
 #endif
-	if (!urldecode_re.match(s.c_str())) {
+	std::vector<std::string> results;
+	std::vector<unsigned int> offsets;
+	if (!urldecode_re.match(s.c_str(), &results, &offsets)) {
 		return s;
 	}			// exit if not found
 #ifdef DGDEBUG
-	std::cout << "matches:" << urldecode_re.numberOfMatches() << std::endl;
+	std::cout << "matches:" << results.size() << std::endl;
 	std::cout << "removing %XX" << std::endl;
 #endif
-	int match;
+	unsigned int match;
 	int offset;
 	int pos = 0;
 	int size = s.length();
 	String result;
 	String n;
-	for (match = 0; match < urldecode_re.numberOfMatches(); match++) {
-		offset = urldecode_re.offset(match);
+	for (match = 0; match < results.size(); match++) {
+		offset = offsets[match];
 		if (offset > pos) {
 			result += s.subString(pos, offset - pos);
 		}
-		n = urldecode_re.result(match).c_str();
+		n = results[match].c_str();
 		n.lop();  // remove %
 		result += hexToChar(n, decodeAll);
 #ifdef DGDEBUG
-		std::cout << "encoded: " << urldecode_re.result(match) << " decoded: " << hexToChar(n) << " string so far: " << result << std::endl;
+		std::cout << "encoded: " << results[match] << " decoded: " << hexToChar(n) << " string so far: " << result << std::endl;
 #endif
 		pos = offset + 3;
 	}

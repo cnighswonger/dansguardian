@@ -47,7 +47,7 @@ public:
 	// categories under which banning has taken place
 	std::string whatIsNaughty;
 	std::string whatIsNaughtyLog;
-	std::string whatIsNaughtyCategories;
+	String whatIsNaughtyCategories;
 	std::string whatIsNaughtyDisplayCategories;
 
 	NaughtyFilter();

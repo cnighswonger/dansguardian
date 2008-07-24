@@ -972,12 +972,14 @@ char *FOptionContainer::testBlanketBlock(unsigned int list, bool ip, bool ssl) {
 // checkme: there's an awful lot of removing whitespace, PTP, etc. going on here.
 // perhaps connectionhandler could keep a suitably modified version handy to prevent repitition of work?
 
-char *FOptionContainer::inSiteList(String &url, unsigned int list, bool doblanket, bool ip, bool ssl)
+char *FOptionContainer::inSiteList(String &url, unsigned int list, String *rcat, bool doblanket, bool ip, bool ssl)
 {
 	// Perform blanket matching if desired
 	if (doblanket) {
 		char *r = testBlanketBlock(list, ip, ssl);
 		if (r) {
+			if (rcat)
+				(*rcat) = r;
 			return r;
 		}
 	}
@@ -996,7 +998,7 @@ char *FOptionContainer::inSiteList(String &url, unsigned int list, bool doblanke
 		for (std::deque<String>::iterator j = url2s->begin(); j != url2s->end(); j++) {
 			url2 = *j;
 			while (url2.contains(".")) {
-				i = (*o.lm.l[list]).findInList(url2.toCharArray());
+				i = (*o.lm.l[list]).findInList(url2.toCharArray(), rcat);
 				if (i != NULL) {
 					return i;  // exact match
 				}
@@ -1006,7 +1008,7 @@ char *FOptionContainer::inSiteList(String &url, unsigned int list, bool doblanke
 		delete url2s;
 	}
 	while (url.contains(".")) {
-		i = (*o.lm.l[list]).findInList(url.toCharArray());
+		i = (*o.lm.l[list]).findInList(url.toCharArray(), rcat);
 		if (i != NULL) {
 			return i;  // exact match
 		}
@@ -1014,7 +1016,7 @@ char *FOptionContainer::inSiteList(String &url, unsigned int list, bool doblanke
 	}
 	if (url.length() > 1) {	// allows matching of .tld
 		url = "." + url;
-		i = (*o.lm.l[list]).findInList(url.toCharArray());
+		i = (*o.lm.l[list]).findInList(url.toCharArray(), rcat);
 		if (i != NULL) {
 			return i;  // exact match
 		}
@@ -1024,35 +1026,37 @@ char *FOptionContainer::inSiteList(String &url, unsigned int list, bool doblanke
 
 // checkme: remove things like this & make inSiteList/inIPList public?
 
-char *FOptionContainer::inBannedSiteList(String url, bool doblanket, bool ip, bool ssl)
+char *FOptionContainer::inBannedSiteList(String url, String *rcat, bool doblanket, bool ip, bool ssl)
 {
-	return inSiteList(url, banned_site_list, doblanket, ip, ssl);
+	return inSiteList(url, banned_site_list, rcat, doblanket, ip, ssl);
 }
 
-bool FOptionContainer::inGreySiteList(String url, bool doblanket, bool ip, bool ssl)
+bool FOptionContainer::inGreySiteList(String url, String *rcat, bool doblanket, bool ip, bool ssl)
 {
-	return inSiteList(url, grey_site_list, doblanket, ip, ssl) != NULL;
+	return inSiteList(url, grey_site_list, rcat, doblanket, ip, ssl) != NULL;
 }
 
-bool FOptionContainer::inExceptionSiteList(String url, bool doblanket, bool ip, bool ssl)
+bool FOptionContainer::inExceptionSiteList(String url, String *rcat, bool doblanket, bool ip, bool ssl)
 {
-	return inSiteList(url, exception_site_list, doblanket, ip, ssl) != NULL;
+	return inSiteList(url, exception_site_list, rcat, doblanket, ip, ssl) != NULL;
 }
 
-bool FOptionContainer::inExceptionFileSiteList(String url)
+bool FOptionContainer::inExceptionFileSiteList(String url, String *rcat)
 {
-	if (inSiteList(url, exception_file_site_list) != NULL)
+	if (inSiteList(url, exception_file_site_list, rcat) != NULL)
 		return true;
 	else
-		return inURLList(url, exception_file_url_list) != NULL;
+		return inURLList(url, exception_file_url_list, rcat) != NULL;
 }
 
 // look in given URL list for given URL
-char *FOptionContainer::inURLList(String &url, unsigned int list, bool doblanket, bool ip, bool ssl) {
+char *FOptionContainer::inURLList(String &url, unsigned int list, String *rcat, bool doblanket, bool ip, bool ssl) {
 	// Perform blanket matching if desired
 	if (doblanket) {
 		char *r = testBlanketBlock(list, ip, ssl);
 		if (r) {
+			if (rcat)
+				(*rcat) = r;
 			return r;
 		}
 	}
@@ -1090,7 +1094,7 @@ char *FOptionContainer::inURLList(String &url, unsigned int list, bool doblanket
 				url2 += "/";
 				url2 += url.after("/");
 				while (url2.before("/").contains(".")) {
-					i = (*o.lm.l[list]).findStartsWith(url2.toCharArray());
+					i = (*o.lm.l[list]).findStartsWith(url2.toCharArray(), rcat);
 					if (i != NULL) {
 						foundurl = i;
 						fl = foundurl.length();
@@ -1112,7 +1116,7 @@ char *FOptionContainer::inURLList(String &url, unsigned int list, bool doblanket
 		}
 	}
 	while (url.before("/").contains(".")) {
-		i = (*o.lm.l[list]).findStartsWith(url.toCharArray());
+		i = (*o.lm.l[list]).findStartsWith(url.toCharArray(), rcat);
 		if (i != NULL) {
 			foundurl = i;
 			fl = foundurl.length();
@@ -1133,63 +1137,63 @@ char *FOptionContainer::inURLList(String &url, unsigned int list, bool doblanket
 	return NULL;
 }
 
-char *FOptionContainer::inBannedURLList(String url, bool doblanket, bool ip, bool ssl)
+char *FOptionContainer::inBannedURLList(String url, String* rcat, bool doblanket, bool ip, bool ssl)
 {
 #ifdef DGDEBUG
 	std::cout<<"inBannedURLList"<<std::endl;
 #endif
-	return inURLList(url, banned_url_list, doblanket, ip, ssl);
+	return inURLList(url, banned_url_list, rcat, doblanket, ip, ssl);
 }
 
-bool FOptionContainer::inGreyURLList(String url, bool doblanket, bool ip, bool ssl)
+bool FOptionContainer::inGreyURLList(String url, String* rcat, bool doblanket, bool ip, bool ssl)
 {
 #ifdef DGDEBUG
 	std::cout<<"inGreyURLList"<<std::endl;
 #endif
-	return inURLList(url, grey_url_list, doblanket, ip, ssl) != NULL;
+	return inURLList(url, grey_url_list, rcat, doblanket, ip, ssl) != NULL;
 }
 
-bool FOptionContainer::inExceptionURLList(String url, bool doblanket, bool ip, bool ssl)
+bool FOptionContainer::inExceptionURLList(String url, String* rcat, bool doblanket, bool ip, bool ssl)
 {
 #ifdef DGDEBUG
 	std::cout<<"inExceptionURLList"<<std::endl;
 #endif
-	return inURLList(url, exception_url_list, doblanket, ip, ssl) != NULL;
+	return inURLList(url, exception_url_list, rcat, doblanket, ip, ssl) != NULL;
 }
 
 // New log-only site lists
-const char* FOptionContainer::inLogURLList(String url)
+bool FOptionContainer::inLogURLList(String url, String *rcat)
 {
 	if (!log_url_flag)
-		return NULL;
-	if (inURLList(url, log_url_list) != NULL) {
-		return o.lm.l[log_url_list]->lastcategory.toCharArray();
+		return false;
+	if (inURLList(url, log_url_list, rcat) != NULL) {
+		return true;
 	}
-	return NULL;
+	return false;
 }
 
-const char* FOptionContainer::inLogSiteList(String url)
+bool FOptionContainer::inLogSiteList(String url, String *rcat)
 {
 	if (!log_site_flag)
-		return NULL;
-	if (inSiteList(url, log_site_list) != NULL) {
-		return o.lm.l[log_site_list]->lastcategory.toCharArray();
+		return false;
+	if (inSiteList(url, log_site_list, rcat) != NULL) {
+		return true;
 	}
-	return NULL;
+	return false;
 }
 
-const char* FOptionContainer::inLogRegExpURLList(String url) {
+bool FOptionContainer::inLogRegExpURLList(String url, String *rcat) {
 	if (!log_regexpurl_flag)
-		return NULL;
-	int j = inRegExpURLList(url, log_regexpurl_list_comp, log_regexpurl_list_ref, log_regexpurl_list);
+		return false;
+	int j = inRegExpURLList(url, log_regexpurl_list_comp, log_regexpurl_list_ref, log_regexpurl_list, rcat);
 	if (j == -1)
-		return NULL;
-	return o.lm.l[log_regexpurl_list_ref[j]]->category.toCharArray();
+		return false;
+	return true;
 }
 
 // TODO: Store the modified URL somewhere, instead of re-processing it every time.
 
-char *FOptionContainer::inExtensionList(unsigned int list, String url)
+char *FOptionContainer::inExtensionList(unsigned int list, String url, String *rcat)
 {
 	url.removeWhiteSpace();  // just in case of weird browser crap
 	url.toLower();
@@ -1199,11 +1203,11 @@ char *FOptionContainer::inExtensionList(unsigned int list, String url)
 	if (url.length() < 2) {	// will never match
 		return NULL;
 	}
-	return (*o.lm.l[list]).findEndsWith(url.toCharArray());
+	return (*o.lm.l[list]).findEndsWith(url.toCharArray(), rcat);
 }
 
 // is this line of the headers in the banned regexp header list?
-int FOptionContainer::inBannedRegExpHeaderList(std::deque<String> &header)
+int FOptionContainer::inBannedRegExpHeaderList(std::deque<String> &header, String *rcat)
 {
 
 	for (std::deque<String>::iterator k = header.begin(); k != header.end(); k++) {
@@ -1213,9 +1217,12 @@ int FOptionContainer::inBannedRegExpHeaderList(std::deque<String> &header)
 		unsigned int i = 0;
 		for (std::deque<RegExp>::iterator j = banned_regexpheader_list_comp.begin(); j != banned_regexpheader_list_comp.end(); j++) {
 			if (o.lm.l[banned_regexpheader_list_ref[i]]->isNow()) {
-				j->match(k->toCharArray());
-				if (j->matched())
+				if (j->match(k->toCharArray()))
+				{
+					if (rcat)
+						(*rcat) = o.lm.l[banned_regexpheader_list_ref[i]]->category;
 					return i;
+				}
 			}
 #ifdef DGDEBUG
 			else
@@ -1228,7 +1235,7 @@ int FOptionContainer::inBannedRegExpHeaderList(std::deque<String> &header)
 }
 
 // is this URL in the given regexp URL list?
-int FOptionContainer::inRegExpURLList(String &url, std::deque<RegExp> &list_comp, std::deque<unsigned int> &list_ref, unsigned int list)
+int FOptionContainer::inRegExpURLList(String &url, std::deque<RegExp> &list_comp, std::deque<unsigned int> &list_ref, unsigned int list, String *rcat)
 {
 #ifdef DGDEBUG
 	std::cout<<"inRegExpURLList: "<<url<<std::endl;
@@ -1269,9 +1276,12 @@ int FOptionContainer::inRegExpURLList(String &url, std::deque<RegExp> &list_comp
 		unsigned int i = 0;
 		for (std::deque<RegExp>::iterator j = list_comp.begin(); j != list_comp.end(); j++) {
 			if (o.lm.l[list_ref[i]]->isNow()) {
-				j->match(url.toCharArray());
-				if (j->matched())
+				if (j->match(url.toCharArray()))
+				{
+					if (rcat)
+						(*rcat) = o.lm.l[list_ref[i]]->category;
 					return i;
+				}
 			}
 #ifdef DGDEBUG
 			else
@@ -1289,20 +1299,20 @@ int FOptionContainer::inRegExpURLList(String &url, std::deque<RegExp> &list_comp
 }
 
 // use above to check banned/exception RegExp URLs
-int FOptionContainer::inBannedRegExpURLList(String url)
+int FOptionContainer::inBannedRegExpURLList(String url, String *rcat)
 {
 #ifdef DGDEBUG
 	std::cout<<"inBannedRegExpURLList"<<std::endl;
 #endif
-	return inRegExpURLList(url, banned_regexpurl_list_comp, banned_regexpurl_list_ref, banned_regexpurl_list);
+	return inRegExpURLList(url, banned_regexpurl_list_comp, banned_regexpurl_list_ref, banned_regexpurl_list, rcat);
 }
 
-int FOptionContainer::inExceptionRegExpURLList(String url)
+int FOptionContainer::inExceptionRegExpURLList(String url, String *rcat)
 {
 #ifdef DGDEBUG
 	std::cout<<"inExceptionRegExpURLList"<<std::endl;
 #endif
-	return inRegExpURLList(url, exception_regexpurl_list_comp, exception_regexpurl_list_ref, exception_regexpurl_list);
+	return inRegExpURLList(url, exception_regexpurl_list_comp, exception_regexpurl_list_ref, exception_regexpurl_list, rcat);
 }
 
 bool FOptionContainer::isIPHostname(String url)
