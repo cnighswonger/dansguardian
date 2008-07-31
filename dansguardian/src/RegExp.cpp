@@ -140,8 +140,8 @@ bool RegExp::match(const char *text, std::vector<std::string> *results, std::vec
 			}
 
 		}
-		delete[]pmatch;
 	}
+	delete[]pmatch;
 #ifdef DGDEBUG
 	std::cout << "match(s) for:" << searchstring << std::endl;
 #endif
