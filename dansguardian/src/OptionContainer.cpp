@@ -137,16 +137,6 @@ bool OptionContainer::read(const char *filename, int type)
 		conffiles.close();
 
 		if (type == 0 || type == 2) {
-
-			/*if ((ipc_filename = findoptionS("ipcfilename")) == "")
-				ipc_filename = "/tmp/.dguardianipc";
-
-			if ((urlipc_filename = findoptionS("urlipcfilename")) == "")
-				urlipc_filename = "/tmp/.dguardianurlipc";
-
-			if ((ipipc_filename = findoptionS("ipipcfilename")) == "")
-				ipipc_filename = "/tmp/.dguardianipipc";*/
-
 			if ((pid_filename = findoptionS("pidfilename")) == "") {
 				pid_filename = __PIDDIR;
 				pid_filename += "dansguardian.pid";
@@ -183,18 +173,6 @@ bool OptionContainer::read(const char *filename, int type)
 		} else {
 			no_daemon = false;
 		}
-
-		/*if (findoptionS("nologger") == "on") {
-			no_logger = true;
-		} else {
-			no_logger = false;
-		}*/
-
-		/*if (findoptionS("softrestart") == "on") {
-			soft_restart = true;
-		} else {
-			soft_restart = false;
-		}*/
 
 #ifdef ENABLE_EMAIL
 		// Email notification patch by J. Gauthier
