@@ -107,6 +107,9 @@ std::queue<logentry*> logqueue;
 extern pthread_mutex_t urlcachemutex;
 extern pthread_mutex_t ipcachemutex;
 
+// Condition variable for waking up the IP stats thread before its 3 minute interval is up
+extern pthread_cond_t ipcacheevent;
+
 DynamicIPList *ipcache = NULL;
 DynamicURLList urlcache;
 
@@ -144,20 +147,12 @@ void addchild(int pos, pthread_t child_pid);
 int getchildslot();
 // cull up to this number of non-busy children
 void cullchildren(int num);
-// delete this child from our info lists
-void deletechild(pthread_t child_id);
-// clean up any dead child processes (calls deletechild with exit values)
+// clean up any dead child processes
 void mopup_afterkids();
 
 #ifndef WIN32
 // tidy up resources for a brand new child process (uninstall signal handlers, delete copies of unnecessary data, etc.)
 void tidyup_forchild();
-#endif
-
-// send SIGTERM or SIGHUP to call children
-void kill_allchildren();
-#ifndef WIN32
-void hup_allchildren();
 #endif
 
 
@@ -361,7 +356,6 @@ void* handle_connections(void *arg)
 
 	// stay alive both for the maximum allowed age of child processes, and whilst we aren't supposed to be re-reading configuration
 	while (!reloadconfig && !ttg) {
-		// XXX Need a cancellation handler which will unlock this mutex
 		pthread_mutex_lock(&connmutex);
 		if (reloadconfig || ttg)
 			break;
@@ -441,76 +435,6 @@ void addchild(int pos, pthread_t child_pid)
 	numchildren++;
 }
 
-// kill give number of non-busy children
-void cullchildren(int num)
-{
-#ifdef DGDEBUG
-	std::cout << "culling childs:" << num << std::endl;
-#endif
-	int i;
-	int count = 0;
-	for (i = o.max_children - 1; i >= 0; i--) {
-		if (childrenstates[i] == 0) {
-			pthread_kill(childrenids[i], SIGTERM);
-			count++;
-			childrenstates[i] = -2;  // dieing
-			numchildren--;
-			if (count >= num) {
-				break;
-			}
-		}
-	}
-}
-
-// cancel all child threads
-void kill_allchildren()
-{
-#ifdef DGDEBUG
-	std::cout << "killing all childs:" << std::endl;
-#endif
-	for (int i = o.max_children - 1; i >= 0; i--) {
-		if (childrenstates[i] >= 0) {
-			pthread_kill(childrenids[i], SIGTERM);
-			childrenstates[i] = -2;  // dieing
-			numchildren--;
-		}
-	}
-}
-
-#ifndef WIN32
-// send SIGHUP to all child threads
-void hup_allchildren()
-{
-#ifdef DGDEBUG
-	std::cout << "huping all childs:" << std::endl;
-#endif
-	for (int i = o.max_children - 1; i >= 0; i--) {
-		if (childrenstates[i] >= 0) {
-			pthread_kill(childrenids[i], SIGHUP);
-		}
-	}
-}
-#endif
-
-// remove child from our PID/FD and slot lists
-void deletechild(pthread_t child_id)
-{
-	int i;
-	for (i = 0; i < o.max_children; i++) {
-		if ((childrenstates[i] >= 0) && (pthread_equal(childrenids[i], child_id) != 0)) {
-			if (childrenstates[i] != -2) {	// -2 is when its been culled
-				numchildren--;  // so no need to duplicater
-			}
-			childrenstates[i] = -1;  // unused
-			break;
-		}
-	}
-	// never should happen that passed pid is not known,
-	// unless its the logger or url cache process, in which case we
-	// don't want to do anything anyway. and this can only happen
-	// when shutting down or restarting.
-}
-
 // *
 // *
 // * end of child process handling code
@@ -560,7 +484,6 @@ void *logger_loop(void *arg)
 
 	while (!ttg)
 	{
-		// XXX Need a cancellation handler which will unlock this mutex
 		pthread_mutex_lock(&logmutex);
 		if (ttg)
 			break;
@@ -952,39 +875,45 @@ void *ipstats_loop(void *arg)
 	int maxusage = 0;
 	while (!ttg)
 	{
-#ifdef WIN32
-		Sleep(180000);
-#else
-		sleep(180);
-#endif
-		// XXX Need cancellation handler to unlock mutex
-		// and close stats file if open
+		// Wait for 3 minutes before writing stats - but don't just use sleep(),
+		// because the main thread may want us to wake up and quit in the mean time.
+		time_t now = time(NULL);
+		timespec abstime;
+		abstime.tv_nsec = 0;
+		abstime.tv_sec = now + 180;
 		pthread_mutex_lock(&ipcachemutex);
+		if (pthread_cond_timedwait(&ipcacheevent, &ipcachemutex, &abstime) == ETIMEDOUT)
+		{
 #ifdef DGDEBUG
-		std::cout << "ips in list: " << ipcache->getNumberOfItems() << std::endl;
-		std::cout << "purging old ip entries" << std::endl;
-		std::cout << "ips in list: " << ipcache->getNumberOfItems() << std::endl;
+			std::cout << "ips in list: " << ipcache->getNumberOfItems() << std::endl;
+			std::cout << "purging old ip entries" << std::endl;
 #endif
-		ipcache->purgeOldEntries();
-		// write usage statistics
-		int currusage = ipcache->getNumberOfItems();
-		pthread_mutex_unlock(&ipcachemutex);
-		if (currusage > maxusage)
-			maxusage = currusage;
-		String usagestats;
-		usagestats += String(currusage) + "\n" + String(maxusage) + "\n";
+			ipcache->purgeOldEntries();
 #ifdef DGDEBUG
-		std::cout << "writing usage stats: " << currusage << " " << maxusage << std::endl;
+			std::cout << "ips in list: " << ipcache->getNumberOfItems() << std::endl;
+#endif
+			// write usage statistics
+			int currusage = ipcache->getNumberOfItems();
+			pthread_mutex_unlock(&ipcachemutex);
+			if (currusage > maxusage)
+				maxusage = currusage;
+			String usagestats;
+			usagestats += String(currusage) + "\n" + String(maxusage) + "\n";
+#ifdef DGDEBUG
+			std::cout << "writing usage stats: " << currusage << " " << maxusage << std::endl;
 #endif
 #ifdef WIN32
-		int statfd = open(o.stat_location.c_str(), O_CREAT | O_WRONLY, S_IRUSR | S_IWUSR);
+			int statfd = open(o.stat_location.c_str(), O_CREAT | O_WRONLY, S_IRUSR | S_IWUSR);
 #else
-		int statfd = open(o.stat_location.c_str(), O_CREAT | O_WRONLY, S_IRUSR | S_IWUSR | S_IRGRP | S_IROTH);
+			int statfd = open(o.stat_location.c_str(), O_CREAT | O_WRONLY, S_IRUSR | S_IWUSR | S_IRGRP | S_IROTH);
 #endif
-		if (statfd > 0) {
-			write(statfd, usagestats.toCharArray(), usagestats.length());
+			if (statfd > 0) {
+				write(statfd, usagestats.toCharArray(), usagestats.length());
+			}
+			close(statfd);
 		}
-		close(statfd);
+		else
+			pthread_mutex_unlock(&ipcachemutex);
 	}
 	return NULL;
 }
@@ -1372,17 +1301,12 @@ int fc_controlit()
 			}
 		}
 	}
-	cullchildren(numchildren);  // remove the fork pool of spare children
-#ifndef WIN32
-	if (numchildren > 0) {
-		hup_allchildren();
-		sleep(2);  // give them a small chance to exit nicely before we force
-	}
-#endif
-	if (numchildren > 0) {
-		kill_allchildren();
-		mopup_afterkids();
-	}
+	
+	ttg = true;
+	reloadconfig = true;
+	pthread_cond_broadcast(&connevent);
+	pthread_cond_broadcast(&logevent);
+	pthread_cond_broadcast(&ipcacheevent);
 	// we might not giving enough time for defuncts to be created and then
 	// mopped but on exit or reload config they'll get mopped up
 #ifdef WIN32
@@ -1390,6 +1314,7 @@ int fc_controlit()
 #else
 	sleep(1);
 #endif
+	mopup_afterkids();
 	
 	urlcache.flush();
 
@@ -1404,6 +1329,11 @@ int fc_controlit()
 		delete logqueue.front();
 		logqueue.pop();
 	}
+	
+	if (o.ll > 0)
+		pthread_join(logthread, NULL);
+	if (o.max_ips > 0)
+		pthread_join(ipstatsthread, NULL);
 
 	delete[]childrenids;
 	delete[]childrenstates;

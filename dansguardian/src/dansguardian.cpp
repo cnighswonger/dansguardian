@@ -94,6 +94,8 @@ pthread_mutex_t ipcachemutex;
 // Mutex for calling gethostbyaddr()
 pthread_mutex_t rdnsmutex;
 
+// Condition variable for waking up the IP stats thread before its 3 minute interval is up
+pthread_cond_t ipcacheevent;
 
 // DECLARATIONS
 
@@ -484,6 +486,15 @@ int main(int argc, char *argv[])
 			std::cerr << "Error creating IP cache mutex: " << strerror_r(rc, errstr, 1024) << std::endl;
 		}
 		syslog(LOG_ERR, "Error creating IP cache mutex: %s", strerror_r(rc, errstr, 1024));
+		return 1;
+	}
+	rc = pthread_cond_init(&ipcacheevent, NULL);
+	if (rc != 0)
+	{
+		if (!is_daemonised) {
+			std::cerr << "Error creating ipcache condition: " << strerror_r(rc, errstr, 1024) << std::endl;
+		}
+		syslog(LOG_ERR, "Error creating ipcache condition: %s", strerror_r(rc, errstr, 1024));
 		return 1;
 	}
 
