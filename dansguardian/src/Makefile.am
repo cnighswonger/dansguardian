@@ -77,8 +77,8 @@ UDSOCKET_SOURCE =
 SYSV_SOURCE =
 REPLACEMENT_SOURCE = ../lib/ctime_r.cpp ../lib/inet_aton.cpp ../lib/strerror_r.cpp ../lib/mkstemp.cpp ../lib/localtime_r.cpp ../lib/syslog.cpp
 else
-UDSOCKET_SOURCE = UDSocket.cpp
-SYSV_SOURCE = SysV.cpp
+UDSOCKET_SOURCE = UDSocket.cpp UDSocket.hpp
+SYSV_SOURCE = SysV.cpp SysV.hpp
 REPLACEMENT_SOURCE =
 endif
 
@@ -94,36 +94,37 @@ dansguardian_CPPFLAGS = -D__CONFFILE='"$(DGCONFFILE)"' \
 			-D__PROXYGROUP='"$(DGPROXYGROUP)"' \
 			-D__CONFDIR='"$(DGCONFDIR)"' \
 			$(AM_CPPFLAGS)
-dansguardian_SOURCES = String.cpp \
-                       FDTunnel.cpp \
-                       ConnectionHandler.cpp \
-                       DataBuffer.cpp \
-                       HTTPHeader.cpp \
-                       NaughtyFilter.cpp \
-                       RegExp.cpp \
-		       FDFuncs.cpp \
-		       BaseSocket.cpp \
-                       Socket.cpp \
-                       FatController.cpp \
+dansguardian_SOURCES = String.cpp String.hpp \
+                       FDTunnel.cpp FDTunnel.hpp \
+                       ConnectionHandler.cpp ConnectionHandler.hpp \
+                       DataBuffer.cpp DataBuffer.hpp \
+                       HTTPHeader.cpp HTTPHeader.hpp \
+                       NaughtyFilter.cpp NaughtyFilter.hpp \
+                       RegExp.cpp RegExp.hpp \
+		       FDFuncs.cpp FDFuncs.hpp \
+		       BaseSocket.cpp BaseSocket.hpp \
+                       Socket.cpp Socket.hpp \
+                       FatController.cpp FatController.hpp \
                        $(UDSOCKET_SOURCE) \
                        $(SYSV_SOURCE) \
-                       ListContainer.cpp \
-                       Auth.cpp \
-                       HTMLTemplate.cpp \
-                       LanguageContainer.cpp \
-                       DynamicURLList.cpp \
-		       DynamicIPList.cpp \
-                       ImageContainer.cpp \
-		       IPList.cpp \
-                       OptionContainer.cpp \
-                       FOptionContainer.cpp \
-                       ListManager.cpp \
-                       md5.cpp \
-                       DownloadManager.cpp \
-                       ConfigVar.cpp \
-                       ContentScanner.cpp \
-		       SocketArray.cpp \
+                       ListContainer.cpp ListContainer.hpp \
+                       Auth.cpp Auth.hpp \
+                       HTMLTemplate.cpp HTMLTemplate.hpp \
+                       LanguageContainer.cpp LanguageContainer.hpp \
+                       DynamicURLList.cpp DynamicURLList.hpp \
+		       DynamicIPList.cpp DynamicIPList.hpp \
+                       ImageContainer.cpp ImageContainer.hpp \
+		       IPList.cpp IPList.hpp \
+                       OptionContainer.cpp OptionContainer.hpp \
+                       FOptionContainer.cpp FOptionContainer.hpp \
+                       ListManager.cpp ListManager.hpp \
+                       md5.cpp md5.hpp \
+                       DownloadManager.cpp DownloadManager.hpp \
+                       ConfigVar.cpp ConfigVar.hpp \
+                       ContentScanner.cpp ContentScanner.hpp \
+		       SocketArray.cpp SocketArray.hpp \
                        dansguardian.cpp \
+		       Plugin.hpp \
 		       $(CLAMAV_SOURCE) $(ICAPSCAN_SOURCE) \
 		       $(KAVDSCAN_SOURCE) $(CLAMDSCAN_SOURCE) \
 		       $(COMMANDLINE_SOURCE) \
