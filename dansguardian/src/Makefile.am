@@ -84,9 +84,9 @@ endif
 
 sbin_PROGRAMS = dansguardian 
 
-dansguardian_CXXFLAGS = $(PCRE_CFLAGS) $(PTHREAD_CFLAGS) $(AM_CXXFLAGS)
+dansguardian_CXXFLAGS = $(PCRE_CFLAGS) $(CLAMAV_CFLAGS) $(PTHREAD_CFLAGS) $(AM_CXXFLAGS)
 dansguardian_LDFLAGS = $(PTHREAD_LIBS) $(AM_LDFLAGS)
-dansguardian_LDADD = $(LIBOBJS) $(PCRE_LIBS) $(PTHREAD_LIBS) $(AM_LIBS)
+dansguardian_LDADD = $(LIBOBJS) $(PCRE_LIBS) $(CLAMAV_LIBS) $(PTHREAD_LIBS) $(AM_LIBS)
 dansguardian_CPPFLAGS = -D__CONFFILE='"$(DGCONFFILE)"' \
 			-D__LOGLOCATION='"$(DGLOGLOCATION)/"' \
 			-D__PIDDIR='"$(DGPIDDIR)"' \
