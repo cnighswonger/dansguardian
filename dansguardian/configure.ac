@@ -130,6 +130,7 @@ case "$host_os" in
 		win=true
 		AC_CHECK_FUNCS([inet_aton strerror_r ctime_r mkstemp localtime_r])
 		LIBS="-lwsock32 ${LIBS}"
+		CXXFLAGS="-mthreads ${CXXFLAGS}"
 		;;
 	*)
 		;;
