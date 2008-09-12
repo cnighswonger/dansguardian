@@ -3,7 +3,7 @@
 # 2004,2005 - Daniel Barron
 
 AC_PREREQ(2.59)
-AC_INIT(dansguardian, 2.9.9.6)
+AC_INIT(dansguardian, 2.9.9.8)
 AM_INIT_AUTOMAKE
 AC_CONFIG_HEADERS([dgconfig.h])
 

@@ -1266,8 +1266,7 @@ void ConnectionHandler::handleConnection(Socket &peerconn, String &ip)
 				// the clean cache because someone who's already been to it hits refresh.
 				if (!wasclean && !checkme.isItNaughty
 					&& (docheader.isContentType("text") || (runav && o.scan_clean_cache))
-					&& header.requestType() == "GET" && !docheader.authRequired()
-					&& docheader.returnCode() != 304)
+					&& (header.requestType() == "GET") && (docheader.returnCode() == 200))
 				{
 					pthread_mutex_lock(&urlcachemutex);
 					urlcache.addEntry(urld.c_str(), filtergroup);

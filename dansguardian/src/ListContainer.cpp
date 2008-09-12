@@ -161,12 +161,16 @@ bool ListContainer::readPhraseList(const char *filename, bool isexception, int c
 	String temp;  // a String for temporary manipulation
 	String line;
 	String lcat;
-	int len = getFileLength(filename);
-	if (len < 0) {
+	size_t len = 0;
+	try {
+		len = getFileLength(filename);
+	}
+	catch (std::runtime_error &e)
+	{
 		if (!is_daemonised) {
-			std::cerr << "Error reading file (does it exist?): " << filename << std::endl;
+			std::cerr << "Error reading file (does it exist?) " << filename << ": " << e.what() << std::endl;
 		}
-		syslog(LOG_ERR, "Error reading file (does it exist?): %s", filename);
+		syslog(LOG_ERR, "Error reading file (does it exist?) %s: %s", filename, e.what());
 		return false;
 	}
 	if (len < 2) {
@@ -334,12 +338,11 @@ void ListContainer::readPhraseListHelper2(String phrase, int type, int weighting
 }
 
 // for item lists - add phrases to list proper
-bool ListContainer::addToItemListPhrase(const char *s, int len, int type, int weighting, bool combi, int catindex, int timeindex)
+bool ListContainer::addToItemListPhrase(const char *s, size_t len, int type, int weighting, bool combi, int catindex, int timeindex)
 {
-	int i;
 	list.push_back(data_length);
 	lengthlist.push_back(len);
-	for (i = 0; i < len; i++) {
+	for (size_t i = 0; i < len; i++) {
 		data[data_length + i] = s[i];
 	}
 	data[data_length + len] = 0;
@@ -387,12 +390,16 @@ bool ListContainer::readItemList(const char *filename, bool startswith, int filt
 
 		}
 	}
-	int len = getFileLength(filename);
-	if (len < 0) {
+	size_t len = 0;
+	try {
+		len = getFileLength(filename);
+	}
+	catch (std::runtime_error &e)
+	{
 		if (!is_daemonised) {
-			std::cerr << "Error reading file: " << filename << std::endl;
+			std::cerr << "Error reading file " << filename << ": " << e.what() << std::endl;
 		}
-		syslog(LOG_ERR, "Error reading file: %s", filename);
+		syslog(LOG_ERR, "Error reading file %s: %s", filename, e.what());
 		return false;
 	}
 	if (len < 2) {
@@ -450,9 +457,20 @@ bool ListContainer::readItemList(const char *filename, bool startswith, int filt
 			continue;
 		}
 
-		if (temp.contains("#")) {
-			temp = temp.before("#");  // tidy up
+		// Strip off comments that don't necessarily start at the beginning of a line
+		// - but not regular expression comments
+		std::string::size_type commentstart = 1;
+		while ((commentstart = temp.find_first_of('#', commentstart)) != std::string::npos)
+		{
+			// Don't treat "(?#...)" as a DG comment - it's a regex comment
+			if (temp[commentstart - 1] != '?')
+			{
+				temp = temp.substr(0, commentstart);
+				break;
+			}
+			++commentstart;
 		}
+
 		temp.removeWhiteSpace();  // tidy up and make it handle CRLF files
 		if (temp.startsWith(".Include<")) {	// see if we have another list
 			inc = temp.after(".Include<");  // to include
@@ -687,111 +705,56 @@ bool ListContainer::checkTimeAtD(int index)
 	return isNow(index);
 }
 
-struct lessThanEWF: public std::binary_function<const unsigned int&, const unsigned int&, bool>
+struct lessThanEWF: public std::binary_function<const size_t&, const size_t&, bool>
 {
-	bool operator()(const unsigned int& aoff, const unsigned int& boff)
+	bool operator()(const size_t& aoff, const size_t& boff)
 	{
 		const char* a = data + aoff;
 		const char* b = data + boff;
-		int alen = strlen(a);
-		int blen = strlen(b);
-		int apos = alen - 1;
-		int bpos = blen - 1;
-		for (int maxlen = (alen < blen ? alen : blen); maxlen > 0; apos--, bpos--, maxlen--)
+		size_t alen = strlen(a);
+		size_t blen = strlen(b);
+		size_t apos = alen - 1;
+		size_t bpos = blen - 1;
+		for (size_t maxlen = ((alen < blen) ? alen : blen); maxlen > 0; apos--, bpos--, maxlen--)
 			if (a[apos] > b[bpos])
 				return true;
 			else if (a[apos] < b[bpos])
 				return false;
 		if (alen > blen)
 			return true;
-		else if (alen < blen)
+		else //if (alen < blen)
 			return false;
-		return true;  // both equal
+		//return true;  // both equal
 	};
 	char *data;
 };
 
-struct lessThanSWF: public std::binary_function<const unsigned int&, const unsigned int&, bool>
+struct lessThanSWF: public std::binary_function<const size_t&, const size_t&, bool>
 {
-	bool operator()(const unsigned int& aoff, const unsigned int& boff)
+	bool operator()(const size_t& aoff, const size_t& boff)
 	{
 		const char* a = data + aoff;
 		const char* b = data + boff;
-		int alen = strlen(a);
-		int blen = strlen(b);
-		int maxlen = alen < blen ? alen : blen;
-		for (int i = 0; i < maxlen; i++)
+		size_t alen = strlen(a);
+		size_t blen = strlen(b);
+		size_t maxlen = (alen < blen) ? alen : blen;
+		for (size_t i = 0; i < maxlen; i++)
 			if (a[i] > b[i])
 				return true;
 			else if (a[i] < b[i])
 				return false;
 		if (alen > blen)
 			return true;
-		else if (alen < blen)
+		else //if (alen < blen)
 			return false;
-		return true;  // both equal
+		//return true;  // both equal
 	};
 	char *data;
 };
-
-/*struct lessThanEW: public std::binary_function<const unsigned int&, const unsigned int&, bool>
-{
-	bool operator()(const unsigned int& aoff, const unsigned int& boff)
-	{
-		const char* a = data + aoff;
-		const char* b = data + boff;
-		int alen = strlen(a);
-		int blen = strlen(b);
-		int apos = alen - 1;
-		int bpos = blen - 1;
-		for (int maxlen = (alen < blen ? alen : blen); maxlen > 0; apos--, bpos--, maxlen--)
-			if (a[apos] > b[bpos])
-				return true;
-			else if (a[apos] < b[bpos])
-				return false;
-		if (blen > alen)
-			return false;
-		return true;  // both equal
-	};
-	char *data;
-};
-
-struct lessThanSW: public std::binary_function<const unsigned int&, const unsigned int&, bool>
-{
-	bool operator()(const unsigned int& aoff, const unsigned int& boff)
-	{
-		const char* a = data + aoff;
-		const char* b = data + boff;
-		int alen = strlen(a);
-		int blen = strlen(b);
-		int maxlen = alen < blen ? alen : blen;
-		for (int i = 0; i < maxlen; i++)
-			if (a[i] > b[i])
-				return true;
-			else if (a[i] < b[i])
-				return false;
-		
-		// if the URLs didn't match and the one the user is browsing to is longer
-		// than what we just compared against, we need to compare against longer URLs,
-		// but only if the next character is actually part of a folder name rather than a separator.
-		// ('cos if it *is* a separator, it doesn't matter that the overall URL is longer, the
-		// beginning of it matches a banned URL.)
-		if ((alen > blen) && !(a[blen] == '/' || a[blen]=='?' || a[blen]=='&' || a[blen]=='='))
-			return true;
-
-		// if the banned URL is longer than the URL we're checking, the two
-		// can't possibly match.
-		else if (blen > alen)
-			return false;
-
-		return true;  // both equal
-	};
-	char *data;
-};*/
 
 void ListContainer::doSort(const bool startsWith)
 {				// sort by ending of line
-	for (unsigned int i = 0; i < morelists.size(); i++)
+	for (size_t i = 0; i < morelists.size(); i++)
 		(*o.lm.l[morelists[i]]).doSort(startsWith);
 	if (items < 2 || issorted)
 		return;
@@ -870,7 +833,7 @@ bool ListContainer::makeGraph(bool fqs)
 	force_quick_search = fqs;
 	if (data_length == 0)
 		return true;
-	int i;
+	long int i;
 	// Quick search has been forced on - put all items on the "slow" list and be done with it
 	if (force_quick_search) {
 		for (i = 0; i < items; i++) {
@@ -935,7 +898,7 @@ bool ListContainer::makeGraph(bool fqs)
 		return false;
 	}
 	graphitems++;
-	std::deque<unsigned int> sizelist;
+	std::deque<size_t> sizelist;
 
 	for (i = 0; i < items; i++) {
 		sizelist.push_back(i);
@@ -978,13 +941,13 @@ bool ListContainer::makeGraph(bool fqs)
 	return true;
 }
 
-void ListContainer::graphSizeSort(int l, int r, std::deque<unsigned int> *sizelist)
+void ListContainer::graphSizeSort(int l, int r, std::deque<size_t> *sizelist)
 {
 	if (r <= l)
 		return;
-	unsigned int e;
+	size_t e;
 	int k;
-	unsigned int v = getItemAtInt((*sizelist)[r]).length();
+	size_t v = getItemAtInt((*sizelist)[r]).length();
 	int i = l - 1, j = r, p = i, q = r;
 	for (;;) {
 		while (getItemAtInt((*sizelist)[++i]).length() < v);
@@ -1456,13 +1419,17 @@ bool ListContainer::readProcessedItemList(const char *filename, bool startswith,
 #ifdef DGDEBUG
 	std::cout << "reading processed file:" << filename << std::endl;
 #endif
-	int len = getFileLength(filename);
-	int slen, i;
-	if (len < 0) {
+	size_t len = 0;
+	size_t slen;
+	try {
+		len = getFileLength(filename);
+	}
+	catch (std::runtime_error &e)
+	{
 		if (!is_daemonised) {
-			std::cerr << "Error reading file: " << filename << std::endl;
+			std::cerr << "Error reading file " << filename << ": " << e.what() << std::endl;
 		}
-		syslog(LOG_ERR, "Error reading file: %s", filename);
+		syslog(LOG_ERR, "Error reading file %s: %s", filename, e.what());
 		return false;
 	}
 	if (len < 5) {
@@ -1531,10 +1498,9 @@ bool ListContainer::readProcessedItemList(const char *filename, bool startswith,
 		slen = linebuffer.length();
 		if (slen < 3)
 			continue;
-		i = slen - 1;
 		list.push_back(data_length);
 		lengthlist.push_back(slen);
-		for (; i >= 0; i--) {
+		for (size_t i = 0; i < slen; i++) {
 			data[data_length + i] = linebuffer[i];
 		}
 		data[data_length + slen] = 0;
@@ -1545,12 +1511,11 @@ bool ListContainer::readProcessedItemList(const char *filename, bool startswith,
 	return true;
 }
 
-void ListContainer::addToItemList(const char *s, int len)
+void ListContainer::addToItemList(const char *s, size_t len)
 {
-	int i;
 	list.push_back(data_length);
 	lengthlist.push_back(len);
-	for (i = 0; i < len; i++) {
+	for (size_t i = 0; i < len; i++) {
 		data[data_length + i] = s[i];
 	}
 	data[data_length + len] = 0;
@@ -1653,12 +1618,16 @@ int ListContainer::greaterThanEW(const char *a, const char *b)
 
 bool ListContainer::isCacheFileNewer(const char *filename)
 {
-	int len = getFileLength(filename);
-	if (len < 0) {
+	size_t len = 0;
+	try {
+		len = getFileLength(filename);
+	}
+	catch (std::runtime_error &e)
+	{
 		if (!is_daemonised) {
-			std::cerr << "Error reading file: " << filename << std::endl;
+			std::cerr << "Error reading file " << filename << ": " << e.what() << std::endl;
 		}
-		syslog(LOG_ERR, "Error reading file: %s", filename);
+		syslog(LOG_ERR, "Error reading file %s: %s", filename, e.what());
 		return false;
 	}
 	int bannedlistdate = getFileDate(filename);
@@ -1671,16 +1640,12 @@ bool ListContainer::isCacheFileNewer(const char *filename)
 	return true;
 }
 
-void ListContainer::increaseMemoryBy(int bytes)
+void ListContainer::increaseMemoryBy(size_t bytes)
 {
 	if (data_memory > 0) {
-		/*char *temp = new char[data_memory + bytes];  // replacement store
-		memcpy(temp, data, data_length);
-		delete[]data;
-		data = temp;*/
 		data = (char*) realloc(data, (data_memory + bytes) * sizeof(char));
 		memset(data + data_memory, 0, bytes * sizeof(char));
-		data_memory = data_memory + bytes;
+		data_memory += bytes;
 	} else {
 		free(data);
 		data = (char*) calloc(bytes, sizeof(char));
@@ -1688,12 +1653,12 @@ void ListContainer::increaseMemoryBy(int bytes)
 	}
 }
 
-int ListContainer::getFileLength(const char *filename)
+size_t ListContainer::getFileLength(const char *filename)
 {
 	struct stat status;
 	int rc = stat(filename, &status);
-	if (rc)
-		return -1;
+	if (rc < 0)
+		throw std::runtime_error(strerror(errno));
 	return status.st_size;
 }
 
