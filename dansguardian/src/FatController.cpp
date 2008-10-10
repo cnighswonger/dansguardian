@@ -1212,7 +1212,6 @@ int fc_controlit()
 		syslog(LOG_ERR, "%s", "Error creating initial fork pool - exiting...");
 	}
 
-	//bool preforked = true;
 	reloadconfig = false;
 
 	syslog(LOG_INFO, "Started sucessfully.");

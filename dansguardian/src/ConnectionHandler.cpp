@@ -1202,7 +1202,7 @@ void ConnectionHandler::handleConnection(Socket &peerconn, String &ip)
 				// can't do content filtering on HEAD or redirections (no content)
 				// actually, redirections CAN have content
 				if (!checkme.isItNaughty && (cl != 0) && !ishead) {
-					if ((docheader.isContentType("text") && !isexception) || runav) {
+					if (((docheader.isContentType("text") || docheader.isContentType("-")) && !isexception) || runav) {
 						// don't search the cache if scan_clean_cache disabled & runav true (won't have been cached)
 						// also don't search cache for auth required headers (same reason)
 
@@ -1251,10 +1251,6 @@ void ConnectionHandler::handleConnection(Socket &peerconn, String &ip)
 				isexception = true;
 				exceptionreason = checkme.whatIsNaughtyLog;
 			}
-
-			/*if (docheader.isRedirection()) {
-				checkme.isItNaughty = false;
-			}*/
 
 			if (o.url_cache_number > 0) {
 				// add to cache if: wasn't already there, wasn't naughty, was text,
@@ -2116,9 +2112,9 @@ void ConnectionHandler::contentFilter(HTTPHeader *docheader, HTTPHeader *header,
 		}
 #endif
 		if (!checkme->isItNaughty && !checkme->isException && !isbypass && (dblen <= o.max_content_filter_size)
-			&& !docheader->authRequired() && docheader->isContentType("text"))
+			&& !docheader->authRequired() && (docheader->isContentType("text") || docheader->isContentType("-")))
 		{
-			checkme->checkme(docbody, url, domain);  // content filterin
+			checkme->checkme(docbody, url, domain);  // content filtering
 		}
 #ifdef DGDEBUG
 		else {

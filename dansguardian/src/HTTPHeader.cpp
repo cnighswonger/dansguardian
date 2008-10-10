@@ -183,23 +183,23 @@ String HTTPHeader::userAgent()
 String HTTPHeader::getContentType()
 {
 	if (pcontenttype != NULL) {
-		int j;
-		unsigned char c;
 		String mimetype(pcontenttype->after(" "));
-		j = 0;
-		while (j < (signed) mimetype.length()) {
+		if (mimetype.length() < 1)
+			return "-";
+		
+		unsigned char c;
+		size_t j = 0;
+		while (j < mimetype.length()) {
 			c = mimetype[j];
 			if (c == ' ' || c == ';' || c < 32) {	// remove the
 				mimetype = mimetype.subString(0, j);
 				// extra info not needed
 				j = 0;
 			}
-			j++;
+			++j;
 		}
+		
 		mimetype.toLower();
-		if (mimetype.length() < 1) {
-			return "-";
-		}
 		return mimetype;
 	}
 	return "-";
@@ -761,9 +761,18 @@ void HTTPHeader::checkheader(bool allowpersistent)
 #ifdef DGDEBUG
 			std::cout << "CheckHeader: HTTP/1.1, so assuming persistency" << std::endl;
 #endif
-			waspersistent = true;
-			ispersistent = true;
+			// Do not allow persistent connections on CONNECT requests - the browser thinks it has a tunnel
+			// directly to the external server, not a connection to the proxy, so it won't be re-used in the
+			// manner expected by DG and will result in waiting for time-outs.  Bug identified by Jason Deasi.
+			if ((*i)[0] == 'C') {
+				allowpersistent = false;
+			} else {
+				waspersistent = true;
+				ispersistent = true;
+			}
+
 			first = false;
+
 			// force HTTP/1.0 - we don't support chunked transfer encoding, possibly amongst other things
 			(*i) = i->before(" HTTP/") + " HTTP/1.0\r";
 		}
