@@ -452,7 +452,7 @@ bool ListContainer::readItemList(const char *filename, bool startswith, int filt
 		} else if (linebuffer == "**s") {
 			blanketsslblock = true;
 			continue;
-		} else if (linebuffer == "**ips") {
+		} else if (linebuffer == "*ips") {
 			blanketssl_ip_block = true;
 			continue;
 		}
@@ -1491,7 +1491,7 @@ bool ListContainer::readProcessedItemList(const char *filename, bool startswith,
 		} else if (linebuffer == "**s") {
 			blanketsslblock = true;
 			continue;
-		} else if (linebuffer == "**ips") {
+		} else if (linebuffer == "*ips") {
 			blanketssl_ip_block = true;
 			continue;
 		}

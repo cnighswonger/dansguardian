@@ -33,9 +33,6 @@
 // program main loop - pass in FD of pidfile
 int fc_controlit();
 
-// test whether we can connect to the parent proxy, optionally printing error messages
-bool fc_testproxy(std::string proxyip, int proxyport, bool report);
-
 struct logentry
 {
 	bool isexception;

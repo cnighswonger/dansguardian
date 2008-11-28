@@ -499,25 +499,6 @@ int main(int argc, char *argv[])
 	}
 
 	while (true) {
-		if (!fc_testproxy(o.proxy_ip, o.proxy_port, false)) {
-#ifndef WIN32
-			sleep(4);  // give the proxy more time (work around squid bug)
-#else
-			Sleep(4000);
-#endif
-			if (!fc_testproxy(o.proxy_ip, o.proxy_port, false)) {
-#ifndef WIN32
-				sleep(4);
-#else
-				Sleep(4000);
-#endif
-				if (!fc_testproxy(o.proxy_ip, o.proxy_port, true)) {
-					return 1;  // could not connect to the proxy so exit with error
-					// with no proxy we can not continue
-				}
-			}
-		}
-
 		rc = fc_controlit();
 		// its a little messy, but I wanted to split
 		// all the ground work and non-daemon stuff
