@@ -129,13 +129,18 @@ case "$host_os" in
 	mingw*)
 		win=true
 		AC_CHECK_FUNCS([inet_aton strerror_r ctime_r mkstemp localtime_r])
-		LIBS="-lwsock32 ${LIBS}"
+		LIBS="-lwsock32 -liphlpapi ${LIBS}"
 		CXXFLAGS="-mthreads ${CXXFLAGS}"
+		AC_DEFINE(WIN32_LEAN_AND_MEAN, 1, [Define if building for Windows])
+		AC_DEFINE(WINVER, [0x0502], [Define if building for Windows])
+		WIN32SUPPORT=""
 		;;
 	*)
+		WIN32SUPPORT="!! Windows only !! "
 		;;
 esac
 AM_CONDITIONAL(WIN32, test "x$win" = "xtrue")
+AC_SUBST(WIN32SUPPORT)
 
 AC_MSG_CHECKING(for debug option)
 AC_ARG_WITH(dgdebug,

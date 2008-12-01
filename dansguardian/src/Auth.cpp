@@ -52,6 +52,10 @@ extern authcreate_t ipcreate;
 extern authcreate_t ntlmcreate;
 #endif
 
+#ifdef WIN32
+extern authcreate_t winusercreate;
+#endif
+
 // IMPLEMENTATION
 
 AuthPlugin::AuthPlugin(ConfigVar &definition):is_connection_based(false), needs_proxy_query(false)
@@ -168,6 +172,15 @@ AuthPlugin* auth_plugin_load(const char *pluginConfigPath)
 		std::cout << "Enabling proxy-NTLM auth plugin" << std::endl;
 #endif
 		return ntlmcreate(cv);
+	}
+#endif
+
+#ifdef WIN32
+	if (plugname == "winuser") {
+#ifdef DGDEBUG
+		std::cout << "Enabling Windows user identification auth plugin" << std::endl;
+#endif
+		return winusercreate(cv);
 	}
 #endif
 

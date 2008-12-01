@@ -97,6 +97,12 @@ std::string Socket::getLocalIP()
 	return inet_ntoa(my_adr.sin_addr);
 }
 
+// find the port to which the client has connected
+uint16_t Socket::getLocalPort()
+{
+	return ntohs(my_adr.sin_port);
+}
+
 // find the ip of the client connecting to us
 std::string Socket::getPeerIP()
 {
@@ -104,15 +110,15 @@ std::string Socket::getPeerIP()
 }
 
 // find the port of the client connecting to us
-int Socket::getPeerSourcePort()
+uint16_t Socket::getPeerSourcePort()
 {
 	return ntohs(peer_adr.sin_port);
 }
 
 // return the address of the client connecting to us
-unsigned long int Socket::getPeerSourceAddr()
+uint32_t Socket::getPeerSourceAddr()
 {
-	return (unsigned long int)ntohl(peer_adr.sin_addr.s_addr);
+	return ntohl(peer_adr.sin_addr.s_addr);
 }
 
 // close connection & wipe address structs

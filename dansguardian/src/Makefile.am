@@ -76,10 +76,12 @@ if WIN32
 UDSOCKET_SOURCE =
 SYSV_SOURCE =
 REPLACEMENT_SOURCE = ../lib/ctime_r.cpp ../lib/inet_aton.cpp ../lib/strerror_r.cpp ../lib/mkstemp.cpp ../lib/localtime_r.cpp ../lib/syslog.cpp
+WINUSERAUTH_SOURCE = authplugins/winuser.cpp
 else
 UDSOCKET_SOURCE = UDSocket.cpp UDSocket.hpp
 SYSV_SOURCE = SysV.cpp SysV.hpp
 REPLACEMENT_SOURCE =
+WINUSERAUTH_SOURCE =
 endif
 
 sbin_PROGRAMS = dansguardian 
@@ -132,4 +134,4 @@ dansguardian_SOURCES = String.cpp String.hpp \
 		       $(TRICKLEDM_SOURCE) $(PROXYAUTH_SOURCE) \
 		       $(IDENTAUTH_SOURCE) $(IPAUTH_SOURCE) \
 		       $(NTLMAUTH_SOURCE) $(DIGESTAUTH_SOURCE) \
-		       $(REPLACEMENT_SOURCE)
+		       $(WINUSERAUTH_SOURCE) $(REPLACEMENT_SOURCE)

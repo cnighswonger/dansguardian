@@ -458,7 +458,7 @@ contentscanexceptions = off
 #@NTLMSUPPORT@authplugin = '@DGCONFDIR@/authplugins/proxy-ntlm.conf'
 #authplugin = '@DGCONFDIR@/authplugins/ident.conf'
 #authplugin = '@DGCONFDIR@/authplugins/ip.conf'
-
+#@WIN32SUPPORT@authplugin = '@DGCONFDIR@/authplugins/winuser.conf'
 
 
 # Re-check replaced URLs

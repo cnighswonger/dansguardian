@@ -10,8 +10,12 @@ if ENABLE_NTLM
 FLISTS += proxy-ntlm.conf
 endif
 
+if WIN32
+FLISTS += winuser.conf
+endif
+
 EXTRA_DIST = proxy-basic.conf ident.conf ip.conf.in proxy-ntlm.conf \
-	     proxy-digest.conf
+	     proxy-digest.conf winuser.conf
 
 install-data-local: 
 	$(mkinstalldirs) $(DESTDIR)$(DGDATADIR) && \

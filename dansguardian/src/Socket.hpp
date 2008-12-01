@@ -55,11 +55,12 @@ public:
 
 	// get remote IP/port
 	std::string getPeerIP();
-	int getPeerSourcePort();
-	unsigned long int getPeerSourceAddr();
+	uint16_t getPeerSourcePort();
+	uint32_t getPeerSourceAddr();
 	
-	// get local IP
+	// get local IP/port
 	std::string getLocalIP();
+	uint16_t getLocalPort();
 
 private:
 	// local & remote addresses
