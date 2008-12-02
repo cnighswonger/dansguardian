@@ -64,6 +64,23 @@ logfileformat = 1
 # Defines the log directory and filename.
 #loglocation = '@DGLOGLOCATION@/access.log'
 
+# Log file auto-rotation
+#
+# When enabled, DG automatically begins a new log file each day.
+# Files are named by appending "loglocation" and "autorotate-format",
+# so "loglocation" should be modified to refer to a directory (including
+# trailing slash).  Note that although new log files are created, old ones
+# are not automatically removed.
+# on | off (default)
+#autorotate = off
+
+# Auto-rotated log file name
+#
+# When "autorotate" is enabled, this string will be used as a format string
+# in "strftime" to form the name of the current day's log file. See "man
+# strftime" for more details about format strings.  This option is only used
+# when "autorotate" is enabled.
+#autorotateformat = "access-%Y-%m-%d.log"
 
 # Statistics log file location
 #

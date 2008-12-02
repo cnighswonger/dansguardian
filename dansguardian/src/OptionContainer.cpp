@@ -178,6 +178,16 @@ bool OptionContainer::read(const char *filename, int type)
 		// Email notification patch by J. Gauthier
 		mailer = findoptionS("mailer");
 #endif
+
+		// Log auto-rotation options
+		if (findoptionS("autorotate") == "on") {
+			autorotate = true;
+		} else {
+			autorotate = false;
+		}
+		if ((autorotate_format = findoptionS("autorotateformat")) == "") {
+			autorotate_format = "access-%Y-%m-%d.log";
+		}
 	   
 		// the dansguardian.conf and pics files get amalgamated into one
 		// deque.  They are only seperate files for clarity.

@@ -436,9 +436,11 @@ void *logger_loop(void *arg)
 #endif
 	
 	std::ofstream* logfile = NULL;
-	if (!o.log_syslog) {
+	int old_yday = -1;
+
+	if (!o.log_syslog && !o.autorotate) {
 		logfile = new std::ofstream(o.log_location.c_str(), std::ios::app);
-		if (logfile->fail()) {
+		if (logfile == NULL || logfile->fail()) {
 			syslog(LOG_ERR, "Error opening/creating log file.");
 #ifdef DGDEBUG
 			std::cout << "Error opening/creating log file: " << o.log_location << std::endl;
@@ -639,9 +641,39 @@ void *logger_loop(void *arg)
 				+ (o.log_user_agent ? l->useragent : "-");
 		}
 
-		if (!o.log_syslog)
+		if (!o.log_syslog) {
+			// Automatically create new log file if autorotation enabled and no current file/day has changed
+			if (o.autorotate) {
+				time_t tt;
+				time(&tt);
+				tm tmnow;
+				localtime_r(&tt, &tmnow);
+				int new_yday = tmnow.tm_yday;
+				// Day changed, or we had no current log file
+				if ((logfile == NULL) || (new_yday != old_yday)) {
+					// Format filename according to format specified in config. file,
+					// close old log file & open new one
+					old_yday = new_yday;
+					char filename[1024];
+					strftime(filename, 1024, o.autorotate_format.c_str(), &tmnow);
+					if (logfile != NULL) {
+						logfile->close();
+						delete logfile;
+					}
+					logfile = new std::ofstream(std::string(o.log_location).append(filename).c_str(), std::ios::app);
+					if (logfile == NULL || logfile->fail()) {
+						// Opening new file failed - disable logging so in-memory queue doesn't get too big
+						syslog(LOG_ERR, "Error opening/creating log file: %s", std::string(o.log_location).append(filename).c_str());
+#ifdef DGDEBUG
+						std::cout << "Error opening/creating log file: " << std::string(o.log_location).append(filename) << std::endl;
+#endif
+						o.ll = 0;
+						return NULL;
+					}
+				}
+			}
 			*logfile << builtline << std::endl;  // append the line
-		else
+		} else
 			syslog(LOG_INFO, "%s", builtline.c_str());
 #ifdef DGDEBUG
 		std::cout << builtline << std::endl;

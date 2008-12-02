@@ -401,17 +401,6 @@ int main(int argc, char *argv[])
 	}
 #endif
 
-	if ((o.ll > 0) && !o.log_syslog) {
-		std::ofstream logfiletest(o.log_location.c_str(), std::ios::app);
-		if (logfiletest.fail()) {
-			syslog(LOG_ERR, "Error opening/creating log file. (check ownership and access rights).");
-			std::cout << "Error opening/creating log file. (check ownership and access rights)." << std::endl;
-			std::cout << "I am running as " << o.daemon_user_name << " and I am trying to open " << o.log_location << std::endl;
-			return 1;  // opening the log file for writing failed
-		}
-		logfiletest.close();
-	}
-
 	urldecode_re.comp("%[0-9a-fA-F][0-9a-fA-F]");  // regexp for url decoding
 
 #ifdef HAVE_PCRE

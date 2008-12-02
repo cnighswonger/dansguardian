@@ -35,6 +35,7 @@
 #endif
 #include <cstdarg>
 #include <cstdio>
+#include <cstring>
 #include <iostream>
 #include <sstream>
 #include <fstream>
@@ -48,6 +49,10 @@
 #include <unistd.h>
 #endif
 
+#ifndef HAVE_LOCALTIME_R
+#include "localtime_r.h"
+#endif
+
 
 // GLOBALS
 
@@ -58,6 +63,8 @@ bool syslogstream_opened = false;
 // Options given to openlog
 int openlog_logopt = LOG_NDELAY;
 const char *openlog_ident = NULL;
+// Current date for log auto-rotation
+tm tmcurrent;
 
 
 // IMPLEMENTATION
@@ -68,19 +75,31 @@ void openlog(const char *ident, int logopt, int facility)
 	openlog_ident = ident;
 	if ((logopt & LOG_NDELAY) || !(logopt & LOG_ODELAY))
 	{
+		// Generate log file name for today's date
+		time_t tt;
+		time(&tt);
+		localtime_r(&tt, &tmcurrent);
+		char filename[1024];
+		strftime(filename, 1024, __LOGLOCATION "/syslog-%Y-%m-%d.log", &tmcurrent);
 		syslogstream.close();
-		syslogstream.open(__LOGLOCATION "syslog.log");
-		syslogstream_opened = true;
-	}
-	if (logopt & LOG_PID)
-	{
+		syslogstream.open(filename, std::ios::app);
+		if (syslogstream.fail())
+			std::cerr << "Could not open syslog log file: " << filename << std::endl;
+		else
+			syslogstream_opened = true;
 	}
 }
 
 void syslog(int priority, const char* format, ...)
 {
-	if (!syslogstream_opened)
+	// Open a new log file each day (i.e. syslog auto-rotation)
+	time_t tt;
+	time(&tt);
+	tm tmnow;
+	localtime_r(&tt, &tmnow);
+	if (!syslogstream_opened || tmnow.tm_yday != tmcurrent.tm_yday)
 	{
+		tmcurrent = tmnow;
 		openlog_logopt |= LOG_ODELAY;
 		openlog(openlog_ident, openlog_logopt, 0);
 	}
@@ -92,9 +111,8 @@ void syslog(int priority, const char* format, ...)
 	va_end(vl);
 
 	std::ostringstream preamble;
-	time_t now = time(NULL);
 	char cbuf[26];
-	ctime_r(&now, cbuf);
+	ctime_r(&tt, cbuf);
 	preamble << cbuf;
 	if (openlog_ident)
 		preamble << openlog_ident;

@@ -79,6 +79,9 @@ public:
 	int proxy_group;
 	int root_user;
 
+	bool autorotate;
+	std::string autorotate_format;
+
 	int max_ips;
 	bool recheck_replaced_urls;
 	bool use_filter_groups_list;
