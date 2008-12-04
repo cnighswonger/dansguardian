@@ -56,6 +56,7 @@ OptionContainer::~OptionContainer()
 	deletePlugins(dmplugins);
 	deletePlugins(csplugins);
 	deletePlugins(authplugins);
+	lm.garbageCollect();
 }
 
 void OptionContainer::reset()
