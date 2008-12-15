@@ -50,28 +50,8 @@ staticzlib=false
 AC_MSG_RESULT(no)
 ])
 
-AC_MSG_CHECKING(for zlib)
-AC_ARG_WITH(zlib,
-	[AC_HELP_STRING([--with-zlib@<:@=NONE@:>@], [non-standard search path for zlib library])],
-	[ # check for header & func (in library) in given prefix
-	CPPFLAGS="${CPPFLAGS} -I${withval}/include"
-	if test "x$staticzlib" = "xtrue"; then
-		LIBS="-Bstatic -L${withval} -lz -Bdynamic ${LIBS}"
-	else
-		LIBS="-L${withval}/lib -lz ${LIBS}"
-	fi
-	],
-	[ # if --with-zlib is not supplied, we still need -lz in LIBS.
-	if test "x$staticzlib" = "xtrue"; then
-		LIBS="-Bstatic -lz -Bdynamic ${LIBS}"
-	else
-		LIBS="-lz ${LIBS}"
-	fi
-	])
 AC_CHECK_HEADERS([zlib.h])
-if ! test "x$staticzlib" = "xtrue"; then
-	AC_CHECK_LIB(z, gzdopen, [AC_MSG_RESULT(yes)], [AC_MSG_ERROR([no zlib!])])
-fi
+AC_SEARCH_LIBS(gzdopen, z zdll, [AC_MSG_RESULT(yes)], [AC_MSG_ERROR([no zlib!])])
 
 AC_CACHE_SAVE
 
