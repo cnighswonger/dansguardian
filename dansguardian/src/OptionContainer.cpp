@@ -29,6 +29,7 @@
 
 #include <iostream>
 #include <fstream>
+#include <sstream>
 
 #ifdef WIN32
 #include "../lib/syslog.h"
@@ -52,11 +53,7 @@ OptionContainer::OptionContainer():numfg(0)
 
 OptionContainer::~OptionContainer()
 {
-	deleteFilterGroups();
-	deletePlugins(dmplugins);
-	deletePlugins(csplugins);
-	deletePlugins(authplugins);
-	lm.garbageCollect();
+	reset();
 }
 
 void OptionContainer::reset()
@@ -724,9 +721,9 @@ bool OptionContainer::readFilterGroupConf()
 		file = prefix + String(i);
 		file += ".conf";
 		if (use_group_names_list) {
-			std::string optname("GROUP");
-			optname += (char)(i + 64);
-			groupname = groupnamesfile[optname.c_str()];
+			std::ostringstream groupnum;
+			groupnum << i;
+			groupname = groupnamesfile[groupnum.str().c_str()];
 			if (groupname.length() == 0) {
 				if (!is_daemonised)
 					std::cerr << "Group names file too short: " << group_names_list_location << std::endl;
