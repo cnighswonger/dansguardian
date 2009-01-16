@@ -869,8 +869,6 @@ void ConnectionHandler::handleConnection(Socket &peerconn, String &ip)
 				break;
 			}
 
-			checkme.filtergroup = filtergroup;
-
 			if ((o.max_ips > 0) && (!gotIPs(clientip))) {
 #ifdef DGDEBUG
 				std::cout << "no client IP slots left" << std::endl;
@@ -982,9 +980,8 @@ void ConnectionHandler::handleConnection(Socket &peerconn, String &ip)
 			if (isconnect && !isbypass && !isexception) {
 				if (!authed) {
 #ifdef DGDEBUG
-					std::cout << "CONNECT: user not authed - doing standard filtering on possible auth required response" << std::endl;
+					std::cout << "CONNECT: user not authed - getting response to see if it's auth required" << std::endl;
 #endif
-					isconnect = false;
 					// send header to proxy
 					proxysock.readyForOutput(10);
 					header.out(NULL, &proxysock, __DGHEADER_SENDALL, true);
@@ -993,16 +990,24 @@ void ConnectionHandler::handleConnection(Socket &peerconn, String &ip)
 					docheader.in(&proxysock, persist);
 					persist = docheader.isPersistent();
 					wasrequested = true;
-				} else {
+					if (docheader.returnCode() != 200)
+					{
 #ifdef DGDEBUG
-					std::cout << "CONNECT: user is authed - attempting pre-emptive ban" << std::endl;
+						std::cout << "CONNECT: user not authed - doing standard filtering on auth required response" << std::endl;
+#endif
+						isconnect = false;
+					}
+				}
+				if (isconnect) {
+#ifdef DGDEBUG
+					std::cout << "CONNECT: user is authed/auth not required - attempting pre-emptive ban" << std::endl;
 #endif
 					// if its a connect and we don't do filtering on it now then
 					// it will get tunneled and not filtered.  We can't tunnel later
 					// as its ssl so we can't see the return header etc
 					// So preemptive banning is forced on with ssl unfortunately.
 					// It is unlikely to cause many problems though.
-					requestChecks(&header, &checkme, &urld, &clientip, &clientuser, filtergroup, isbanneduser, isbannedip);
+					requestChecks(&header, &checkme, &urld, &url, &clientip, &clientuser, filtergroup, isbanneduser, isbannedip);
 #ifdef DGDEBUG
 					std::cout << "done checking" << std::endl;
 #endif
@@ -1067,7 +1072,7 @@ void ConnectionHandler::handleConnection(Socket &peerconn, String &ip)
 			// not good if blocking sites it would be illegal to retrieve, and allows web bugs/tracking
 			// links not to be requested.
 			if (authed && !isbypass && !isexception && !checkme.isItNaughty) {
-				requestChecks(&header, &checkme, &urld, &clientip, &clientuser, filtergroup,
+				requestChecks(&header, &checkme, &urld, &url, &clientip, &clientuser, filtergroup,
 					isbanneduser, isbannedip);
 			}
 
@@ -1295,7 +1300,7 @@ void ConnectionHandler::handleConnection(Socket &peerconn, String &ip)
 				// act as a quicker rejection. also so as not to pre-emptively ban currently
 				// un-authed users.
 				if (!authed && !isbypass && !isexception && !checkme.isItNaughty && !docheader.authRequired()) {
-					requestChecks(&header, &checkme, &urld, &clientip, &clientuser, filtergroup,
+					requestChecks(&header, &checkme, &urld, &url, &clientip, &clientuser, filtergroup,
 						isbanneduser, isbannedip);
 				}
 
@@ -1678,7 +1683,7 @@ void ConnectionHandler::doLog(std::string &who, std::string &from, String &where
 }
 
 // check the request header is OK (client host/user/IP allowed to browse, site not banned, upload not too big)
-void ConnectionHandler::requestChecks(HTTPHeader *header, NaughtyFilter *checkme, String *urld,
+void ConnectionHandler::requestChecks(HTTPHeader *header, NaughtyFilter *checkme, String *urld, String *url,
 	std::string *clientip, std::string *clientuser, int filtergroup,
 	bool &isbanneduser, bool &isbannedip)
 {
@@ -1706,9 +1711,23 @@ void ConnectionHandler::requestChecks(HTTPHeader *header, NaughtyFilter *checkme
 	int j;
 	String temp;
 	temp = (*urld);
+	bool is_ssl = header->requestType() == "CONNECT";
+
+	// search term blocking - apply even to things in grey lists, as it's a form of content filtering
+	// don't bother with SSL sites, though.  note that we must pass in the non-hex-decoded URL in
+	// order for regexes to be able to split up parameters reliably.
+	if (!is_ssl) {
+		// for now, just call it so we can see the debug output
+		String terms;
+		bool extracted = o.fg[filtergroup]->extractSearchTerms(*url, terms);
+		if (extracted) {
+			checkme->checkme(terms.c_str(), terms.length(), NULL, NULL, filtergroup, o.fg[filtergroup]->banned_phrase_list, true);
+			if (checkme->isItNaughty)
+				return;
+		}
+	}
 
 	// only apply bans to things not in the grey lists
-	bool is_ssl = header->requestType() == "CONNECT";
 	bool is_ip = isIPHostnameStrip(temp);
 	if (!((*o.fg[filtergroup]).inGreySiteList(temp, true, is_ip, is_ssl) || (*o.fg[filtergroup]).inGreyURLList(temp, true, is_ip, is_ssl))) {
 		if (!(*checkme).isItNaughty) {
@@ -2243,7 +2262,7 @@ void ConnectionHandler::contentFilter(HTTPHeader *docheader, HTTPHeader *header,
 		if (!checkme->isItNaughty && !checkme->isException && !isbypass && (dblen <= o.max_content_filter_size)
 			&& !docheader->authRequired() && (docheader->isContentType("text") || docheader->isContentType("-")))
 		{
-			checkme->checkme(docbody, url, domain);  // content filtering
+			checkme->checkme(docbody->data, docbody->buffer_length, &url, &domain, filtergroup, o.fg[filtergroup]->banned_phrase_list);  // content filtering
 		}
 #ifdef DGDEBUG
 		else {
