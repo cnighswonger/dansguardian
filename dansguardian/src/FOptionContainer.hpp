@@ -194,7 +194,7 @@ public:
 	unsigned int log_site_list;
 	unsigned int log_url_list;
 	unsigned int log_regexpurl_list;
-   
+
 	// regex match lists
 	std::deque<RegExp> banned_regexpurl_list_comp;
 	std::deque<String> banned_regexpurl_list_source;
@@ -225,6 +225,13 @@ public:
 	// access denied address & domain - if they override the defaults
 	std::string access_denied_address;
 	String access_denied_domain;
+	
+	// search term blocking
+	unsigned int searchengine_regexp_list;
+	std::deque<RegExp> searchengine_regexp_list_comp;
+	std::deque<String> searchengine_regexp_list_source;
+	std::deque<unsigned int> searchengine_regexp_list_ref;
+	bool extractSearchTerms(String url, String &terms);
 
 	FOptionContainer():
 		block_downloads(false), banned_page(NULL),
@@ -235,7 +242,8 @@ public:
 		content_regexp_flag(false), url_regexp_flag(false), header_regexp_flag(false),
 		exception_extension_flag(false), exception_mimetype_flag(false),
 		exception_file_site_flag(false), exception_file_url_flag(false),
-		log_site_flag(false), log_url_flag(false), log_regexpurl_flag(false) {};
+		log_site_flag(false), log_url_flag(false), log_regexpurl_flag(false),
+		searchengine_regexp_flag(false) {};
 	~FOptionContainer();
 	bool read(const char *filename);
 	void reset();
@@ -287,6 +295,10 @@ private:
 	bool log_site_flag;
 	bool log_url_flag;
 	bool log_regexpurl_flag;
+
+	// search term blocking
+	bool searchengine_regexp_flag;
+	
 	std::deque<int> banned_phrase_list_index;
 
 	std::deque<std::string > conffile;

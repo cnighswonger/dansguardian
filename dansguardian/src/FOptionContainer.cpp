@@ -95,6 +95,8 @@ void FOptionContainer::reset()
 	if (log_site_flag) o.lm.deRefList(log_site_list);
 	if (log_url_flag) o.lm.deRefList(log_url_list);
 	if (log_regexpurl_flag) o.lm.deRefList(log_regexpurl_list);
+	if (searchengine_regexp_flag) o.lm.deRefList(searchengine_regexp_flag);
+	
 	banned_phrase_flag = false;
 	exception_site_flag = false;
 	exception_url_flag = false;
@@ -117,9 +119,14 @@ void FOptionContainer::reset()
 	log_site_flag = false;
 	log_url_flag = false;
 	log_regexpurl_flag = false;
+	searchengine_regexp_flag = false;
+	
 	block_downloads = false;
+	
 	banned_phrase_list_index.clear();
+	
 	conffile.clear();
+	
 	content_regexp_list_comp.clear();
 	content_regexp_list_rep.clear();
 	url_regexp_list_comp.clear();
@@ -138,6 +145,10 @@ void FOptionContainer::reset()
 	log_regexpurl_list_comp.clear();
 	log_regexpurl_list_source.clear();
 	log_regexpurl_list_ref.clear();
+	searchengine_regexp_list_comp.clear();
+	searchengine_regexp_list_source.clear();
+	searchengine_regexp_list_ref.clear();
+	
 	delete banned_page;
 	banned_page = NULL;
 }
@@ -476,6 +487,9 @@ bool FOptionContainer::read(const char *filename)
 			std::string log_site_list_location(findoptionS("logsitelist"));
 			std::string log_regexpurl_list_location(findoptionS("logregexpurllist"));
 
+			// search term blocking
+			std::string searchengine_regexp_list_location(findoptionS("searchengineregexplist"));
+
 			if (enable_PICS) {
 				pics_rsac_nudity = findoptionI("RSACnudity");
 				pics_rsac_language = findoptionI("RSAClanguage");
@@ -645,6 +659,16 @@ bool FOptionContainer::read(const char *filename)
 				log_regexpurl_flag = true;
 #ifdef DGDEBUG
 				std::cout << "Enabled log-only RegExp URL list" << std::endl;
+#endif
+			}
+
+			// search term blocking
+			if (searchengine_regexp_list_location.length() && readRegExMatchFile(searchengine_regexp_list_location.c_str(), "searchengineregexplist", searchengine_regexp_list,
+				searchengine_regexp_list_comp, searchengine_regexp_list_source, searchengine_regexp_list_ref))
+			{
+				searchengine_regexp_flag = true;
+#ifdef DGDEBUG
+				std::cout << "Enabled search term extraction RegExp list" << std::endl;
 #endif
 			}
 
@@ -1165,6 +1189,53 @@ char *FOptionContainer::inExtensionList(unsigned int list, String url)
 		return NULL;
 	}
 	return (*o.lm.l[list]).findEndsWith(url.toCharArray());
+}
+
+// search term blocking
+// is this URL recognised by the search engine regexp list?  if so, return extracted search terms
+bool FOptionContainer::extractSearchTerms(String url, String &terms)
+{
+	if (!searchengine_regexp_flag)
+		return false;
+
+	url.removeWhiteSpace();
+	url.removePTP();
+
+#ifdef DGDEBUG
+	std::cout << "extractSearchTerms: " << url << std::endl;
+#endif
+	unsigned int i = 0;
+	// iterate over all regexes in the compiled list.  if the source list is enabled
+	// at the current time, test to see if the regex itself matches the URL.
+	for (std::deque<RegExp>::iterator j = searchengine_regexp_list_comp.begin(); j != searchengine_regexp_list_comp.end(); j++) {
+		if (o.lm.l[searchengine_regexp_list_ref[i]]->isNow()) {
+			j->match(url.toCharArray());
+			if (j->matched()) {
+				// return the first submatch.
+				// if there are no submatches, the regex isn't suitable for
+				// actually extracting search terms; treat this as an error.
+				// match 1 is the whole string matched by the regex - we need
+				// at least 2 matches for there to have been a submatch.
+				if (j->numberOfMatches() < 2) {
+#ifdef DGDEBUG
+					std::cout << "extractSearchTerms: matched a regex with no submatches: " << searchengine_regexp_list_source[i] << std::endl;
+#endif
+					syslog(LOG_ERR, "extractSearchTerms: no submatches in regex! (%s)", searchengine_regexp_list_source[i].toCharArray());
+					return false;
+				}
+				terms = j->result(1);
+				// change '+' to ' ' then hex decode (remove URL parameter encoding)
+				terms.replaceall("+", " ");
+				terms.hexDecode();
+#ifdef DGDEBUG
+				std::cout << "extractSearchTerms: matched something: " << searchengine_regexp_list_source[i] << ", " << terms << std::endl;
+#endif
+				return true;
+			}
+		}
+		++i;
+	}
+	return false;
 }
 
 // is this line of the headers in the banned regexp header list?
