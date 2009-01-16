@@ -40,20 +40,23 @@ struct TimeLimit {
 	String days, timetag;
 };
 
+time_t getFileDate(const char *filename);
+size_t getFileLength(const char *filename);
+
 class ListContainer
 {
 public:
 	std::vector<int> combilist;
 	int refcount;
 	bool parent;
-	int filedate;
+	time_t filedate;
 	bool used;
 	String bannedpfile;
 	String exceptionpfile;
 	String weightedpfile;
-	int bannedpfiledate;
-	int exceptionpfiledate;
-	int weightedpfiledate;
+	time_t bannedpfiledate;
+	time_t exceptionpfiledate;
+	time_t weightedpfiledate;
 	String sourcefile;  // used for non-phrase lists only
 	String category;
 	String lastcategory;
@@ -98,7 +101,7 @@ public:
 	String getListCategoryAt(int index, int *catindex = NULL);
 	String getListCategoryAtD(int index);
 
-	void graphSearch(std::map<std::string, std::pair<unsigned int, unsigned int> >& result, char *doc, int len);
+	void graphSearch(std::map<std::string, std::pair<unsigned int, int> >& result, char *doc, off_t len);
 	
 	bool isNow(int index = -1);
 	bool checkTimeAt(unsigned int index);
@@ -162,7 +165,7 @@ private:
 	void graphAdd(String s, const int inx, int item);
 	int graphFindBranches(unsigned int pos);
 	void graphCopyNodePhrases(unsigned int pos);
-	int bmsearch(char *file, int fl, const std::string& s);
+	int bmsearch(char *file, off_t fl, const std::string& s);
 	bool readProcessedItemList(const char *filename, bool startswith, int filters);
 	void addToItemList(const char *s, size_t len);
 	int greaterThanEWF(const char *a, const char *b);  // full match
@@ -171,8 +174,6 @@ private:
 	int greaterThanSW(const char *a, const char *b);  // partial starts with
 	int search(int (ListContainer::*comparitor)(const char* a, const char* b), int a, int s, const char *p);
 	bool isCacheFileNewer(const char *string);
-	size_t getFileLength(const char *filename);
-	int getFileDate(const char *filename);
 	void increaseMemoryBy(size_t bytes);
 	//categorised & time-limited lists support
 	bool readTimeTag(String * tag, TimeLimit& tl);
