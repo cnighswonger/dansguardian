@@ -74,6 +74,7 @@ FOptionContainer::~FOptionContainer()
 void FOptionContainer::reset()
 {
 	if (banned_phrase_flag) o.lm.deRefList(banned_phrase_list);
+	if (searchterm_flag) o.lm.deRefList(searchterm_list);
 	if (exception_site_flag) o.lm.deRefList(exception_site_list);
 	if (exception_url_flag) o.lm.deRefList(exception_url_list);
 	if (banned_extension_flag) o.lm.deRefList(banned_extension_list);
@@ -96,8 +97,9 @@ void FOptionContainer::reset()
 	if (log_url_flag) o.lm.deRefList(log_url_list);
 	if (log_regexpurl_flag) o.lm.deRefList(log_regexpurl_list);
 	if (searchengine_regexp_flag) o.lm.deRefList(searchengine_regexp_flag);
-	
+
 	banned_phrase_flag = false;
+	searchterm_flag = false;
 	exception_site_flag = false;
 	exception_url_flag = false;
 	banned_extension_flag = false;
@@ -458,6 +460,7 @@ bool FOptionContainer::read(const char *filename)
 			if (!realitycheck(naughtyness_limit, 1, 0, "naughtynesslimit")) {
 				return false;
 			}
+
 			std::string exception_phrase_list_location(findoptionS("exceptionphraselist"));
 			std::string weighted_phrase_list_location(findoptionS("weightedphraselist"));
 			std::string banned_phrase_list_location(findoptionS("bannedphraselist"));
@@ -607,7 +610,10 @@ bool FOptionContainer::read(const char *filename)
 			}		// download site exceptions
 			exception_file_url_flag = true;
 
-			if (!readbplfile(banned_phrase_list_location.c_str(), exception_phrase_list_location.c_str(), weighted_phrase_list_location.c_str())) {
+			if (!readbplfile(banned_phrase_list_location.c_str(),
+				exception_phrase_list_location.c_str(),
+				weighted_phrase_list_location.c_str(), banned_phrase_list))
+			{
 				return false;
 			}		// read banned, exception, weighted phrase list
 			banned_phrase_flag = true;
@@ -666,6 +672,30 @@ bool FOptionContainer::read(const char *filename)
 #ifdef DGDEBUG
 				std::cout << "Enabled search term extraction RegExp list" << std::endl;
 #endif
+				searchterm_limit = findoptionI("searchtermlimit");
+				if (!realitycheck(searchterm_limit, 1, 0, "searchtermlimit")) {
+					return false;
+				}
+
+				// Optionally override the normal phrase lists for search term blocking.
+				// We need all three lists to build a phrase tree, so fail if we encounter
+				// anything other than all three enabled/disabled simultaneously.
+				std::string exception_searchterm_list_location(findoptionS("exceptionsearchtermlist"));
+				std::string weighted_searchterm_list_location(findoptionS("weightedsearchtermlist"));
+				std::string banned_searchterm_list_location(findoptionS("bannedsearchtermlist"));
+				if (!(exception_searchterm_list_location.length() == 0 &&
+					weighted_searchterm_list_location.length() == 0 &&
+					banned_searchterm_list_location.length() == 0))
+				{
+					// At least one is enabled - try to load all three.
+					if (!readbplfile(banned_searchterm_list_location.c_str(),
+						exception_searchterm_list_location.c_str(),
+						weighted_searchterm_list_location.c_str(), searchterm_list))
+					{
+						return false;
+					}
+					searchterm_flag = true;
+				}
 			}
 
 			if (!readRegExMatchFile(banned_regexpurl_list_location.c_str(),"bannedregexpurllist",banned_regexpurl_list,
@@ -778,7 +808,7 @@ bool FOptionContainer::read(const char *filename)
 	return true;
 }
 
-bool FOptionContainer::readbplfile(const char *banned, const char *exception, const char *weighted)
+bool FOptionContainer::readbplfile(const char *banned, const char *exception, const char *weighted, unsigned int &list)
 {
 
 	int res = o.lm.newPhraseList(exception, banned, weighted);
@@ -789,12 +819,11 @@ bool FOptionContainer::readbplfile(const char *banned, const char *exception, co
 		syslog(LOG_ERR, "%s", "Error opening phraselists");
 		return false;
 	}
-	banned_phrase_list = res;
-	if (!(*o.lm.l[banned_phrase_list]).used) {
+	if (!(*o.lm.l[res]).used) {
 #ifdef DGDEBUG
 		std::cout << "Reading new phrase lists" << std::endl;
 #endif
-		bool result = (*o.lm.l[banned_phrase_list]).readPhraseList(exception, true);
+		bool result = (*o.lm.l[res]).readPhraseList(exception, true);
 		if (!result) {
 			if (!is_daemonised) {
 				std::cerr << "Error opening exceptionphraselist" << std::endl;
@@ -803,7 +832,7 @@ bool FOptionContainer::readbplfile(const char *banned, const char *exception, co
 			return false;
 		}
 
-		result = (*o.lm.l[banned_phrase_list]).readPhraseList(banned, false);
+		result = (*o.lm.l[res]).readPhraseList(banned, false);
 		if (!result) {
 			if (!is_daemonised) {
 				std::cerr << "Error opening bannedphraselist" << std::endl;
@@ -815,7 +844,7 @@ bool FOptionContainer::readbplfile(const char *banned, const char *exception, co
 #ifdef DGDEBUG
 			std::cout << "Reading weighted phrase list" << std::endl;
 #endif
-			result = (*o.lm.l[banned_phrase_list]).readPhraseList(weighted, false);
+			result = (*o.lm.l[res]).readPhraseList(weighted, false);
 			if (!result) {
 				if (!is_daemonised) {
 					std::cerr << "Error opening weightedphraselist" << std::endl;
@@ -824,11 +853,12 @@ bool FOptionContainer::readbplfile(const char *banned, const char *exception, co
 				return false;
 			}
 		}
-		if (!(*o.lm.l[banned_phrase_list]).makeGraph(force_quick_search))
+		if (!(*o.lm.l[res]).makeGraph(force_quick_search))
 			return false;
 
-		(*o.lm.l[banned_phrase_list]).used = true;
+		(*o.lm.l[res]).used = true;
 	}
+	list = res;
 	return true;
 }
 

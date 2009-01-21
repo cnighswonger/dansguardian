@@ -52,6 +52,7 @@ public:
 	int group_mode;
 	int embedded_url_weight;
 	int naughtyness_limit;
+	int searchterm_limit;
 	bool createlistcachefiles;
 	bool enable_PICS;
 	bool deep_url_analysis;
@@ -228,6 +229,8 @@ public:
 	
 	// search term blocking
 	unsigned int searchengine_regexp_list;
+	unsigned int searchterm_list;
+	bool searchterm_flag;
 	std::deque<RegExp> searchengine_regexp_list_comp;
 	std::deque<String> searchengine_regexp_list_source;
 	std::deque<unsigned int> searchengine_regexp_list_ref;
@@ -304,7 +307,7 @@ private:
 	std::deque<std::string > conffile;
 
 	bool precompileregexps();
-	bool readbplfile(const char *banned, const char *exception, const char *weighted);
+	bool readbplfile(const char *banned, const char *exception, const char *weighted, unsigned int &list);
 	bool readFile(const char *filename, unsigned int* whichlist, bool sortsw, bool cache, const char *listname);
 	bool readRegExMatchFile(const char *filename, const char *listname, unsigned int& listref,
 		std::deque<RegExp> &list_comp, std::deque<String> &list_source, std::deque<unsigned int> &list_ref);
