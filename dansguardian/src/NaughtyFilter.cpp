@@ -82,7 +82,8 @@ void NaughtyFilter::reset()
 
 // check the given document body for banned, weighted, and exception phrases (and PICS, and regexes, &c.)
 // also used for scanning search terms, which causes various features - PICS, META/TITLE extraction, etc. - to be disabled
-void NaughtyFilter::checkme(const char *rawbody, off_t rawbodylen, const String *url, const String *domain, unsigned int filtergroup, unsigned int phraselist, bool searchterms)
+void NaughtyFilter::checkme(const char *rawbody, off_t rawbodylen, const String *url,
+	const String *domain, unsigned int filtergroup, unsigned int phraselist, int limit, bool searchterms)
 {
 #ifdef DGDEBUG
 	if (searchterms)
@@ -325,7 +326,7 @@ void NaughtyFilter::checkme(const char *rawbody, off_t rawbodylen, const String 
 				std::cout << bodymeta << std::endl;
 #endif
 				bodymetalen = j;
-				checkphrase(bodymeta, bodymetalen, NULL, NULL, filtergroup, phraselist);
+				checkphrase(bodymeta, bodymetalen, NULL, NULL, filtergroup, phraselist, limit);
 			}
 #ifdef DGDEBUG
 			else
@@ -346,7 +347,7 @@ void NaughtyFilter::checkme(const char *rawbody, off_t rawbodylen, const String 
 			std::cout << "Checking raw content" << std::endl;
 #endif
 			// check unstripped content
-			checkphrase(bodylc, hexdecodedlen, url, domain, filtergroup, phraselist);
+			checkphrase(bodylc, hexdecodedlen, url, domain, filtergroup, phraselist, limit);
 			if (isItNaughty || isException) {
 				delete[]bodylc;
 				delete[] bodynohtml;
@@ -399,7 +400,7 @@ void NaughtyFilter::checkme(const char *rawbody, off_t rawbodylen, const String 
 #ifdef DGDEBUG
 		std::cout << "Checking smart content" << std::endl;
 #endif
-		checkphrase(bodynohtml, j - 1, NULL, NULL, filtergroup, phraselist);
+		checkphrase(bodynohtml, j - 1, NULL, NULL, filtergroup, phraselist, limit);
 
 		// second time round the case loop (if there is a second time),
 		// do preserve case (exotic encodings)
@@ -412,7 +413,8 @@ void NaughtyFilter::checkme(const char *rawbody, off_t rawbodylen, const String 
 }
 
 // check the phrase lists
-void NaughtyFilter::checkphrase(char *file, off_t filelen, const String *url, const String *domain, unsigned int filtergroup, unsigned int phraselist)
+void NaughtyFilter::checkphrase(char *file, off_t filelen, const String *url, const String *domain,
+	unsigned int filtergroup, unsigned int phraselist, int limit)
 {
 	int weighting = 0;
 	int cat;
@@ -824,11 +826,11 @@ void NaughtyFilter::checkphrase(char *file, off_t filelen, const String *url, co
 		return;
 	}
 
-	if (weighting > (*o.fg[filtergroup]).naughtyness_limit) {
+	if (weighting > limit) {
 		isItNaughty = true;
 		whatIsNaughtyLog = o.language_list.getTranslation(402);
 		// Weighted phrase limit of
-		whatIsNaughtyLog += String((*o.fg[filtergroup]).naughtyness_limit).toCharArray();
+		whatIsNaughtyLog += String(limit).toCharArray();
 		whatIsNaughtyLog += " : ";
 		whatIsNaughtyLog += String(weighting).toCharArray();
 		if (o.show_weighted_found) {

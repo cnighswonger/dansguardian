@@ -50,7 +50,7 @@ public:
 	NaughtyFilter();
 	void reset();
 	void checkme(const char *rawbody, off_t rawbodylen, const String *url, const String *domain,
-		unsigned int filtergroup, unsigned int phraselist, bool searchterms = false);
+		unsigned int filtergroup, unsigned int phraselist, int limit, bool searchterms = false);
 	
 	// highest positive (or lowest negative) weighting out of
 	// both phrase filtering passes (smart/raw)
@@ -63,7 +63,7 @@ private:
 	// trying to look for links etc. in "smart" filtering mode, i.e.
 	// after HTML has been removed, and in search terms.)
 	void checkphrase(char *file, off_t filelen, const String *url, const String *domain,
-		unsigned int filtergroup, unsigned int phraselist);
+		unsigned int filtergroup, unsigned int phraselist, int limit);
 	
 	// check PICS ratings
 	void checkPICS(const char *file, unsigned int filtergroup);

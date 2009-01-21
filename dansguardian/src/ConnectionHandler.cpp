@@ -1726,7 +1726,9 @@ void ConnectionHandler::requestChecks(HTTPHeader *header, NaughtyFilter *checkme
 		String terms;
 		bool extracted = o.fg[filtergroup]->extractSearchTerms(*url, terms);
 		if (extracted) {
-			checkme->checkme(terms.c_str(), terms.length(), NULL, NULL, filtergroup, o.fg[filtergroup]->banned_phrase_list, true);
+			checkme->checkme(terms.c_str(), terms.length(), NULL, NULL, filtergroup,
+				(o.fg[filtergroup]->searchterm_flag ? o.fg[filtergroup]->searchterm_list : o.fg[filtergroup]->banned_phrase_list),
+				o.fg[filtergroup]->searchterm_limit, true);
 			if (checkme->isItNaughty)
 				return;
 		}
@@ -2267,7 +2269,8 @@ void ConnectionHandler::contentFilter(HTTPHeader *docheader, HTTPHeader *header,
 		if (!checkme->isItNaughty && !checkme->isException && !isbypass && (dblen <= o.max_content_filter_size)
 			&& !docheader->authRequired() && (docheader->isContentType("text") || docheader->isContentType("-")))
 		{
-			checkme->checkme(docbody->data, docbody->buffer_length, &url, &domain, filtergroup, o.fg[filtergroup]->banned_phrase_list);  // content filtering
+			checkme->checkme(docbody->data, docbody->buffer_length, &url, &domain,
+				filtergroup, o.fg[filtergroup]->banned_phrase_list, o.fg[filtergroup]->naughtyness_limit);
 		}
 #ifdef DGDEBUG
 		else {
