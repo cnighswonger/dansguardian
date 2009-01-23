@@ -237,7 +237,7 @@ public:
 	bool extractSearchTerms(String url, String &terms);
 
 	FOptionContainer():
-		block_downloads(false), banned_page(NULL),
+		block_downloads(false), searchterm_flag(false), banned_page(NULL),
 		banned_phrase_flag(false), exception_site_flag(false), exception_url_flag(false),
 		banned_extension_flag(false), banned_mimetype_flag(false), banned_site_flag(false),
 		banned_url_flag(false), grey_site_flag(false), grey_url_flag(false),
