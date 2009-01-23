@@ -480,6 +480,7 @@ void ConnectionHandler::handleConnection(Socket &peerconn, String &ip)
 				delete clienthost;
 				clienthost = NULL;  // and the hostname, if available
 				matchedip = false;
+				urlparams.clear();
 				docsize = 0;  // to store the size of the returned document for logging
 				mimetype = "-";
 				exceptionreason = "";
