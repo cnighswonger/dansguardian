@@ -1253,6 +1253,10 @@ bool FOptionContainer::extractSearchTerms(String url, String &terms)
 				// change '+' to ' ' then hex decode (remove URL parameter encoding)
 				terms.replaceall("+", " ");
 				terms.hexDecode();
+				// also replace any characters which could potentially screw up logging
+				terms.replaceall("\t", " ");
+				terms.replaceall(",", " ");
+				terms.replaceall(";", " ");
 #ifdef DGDEBUG
 				std::cout << "extractSearchTerms: matched something: " << searchengine_regexp_list_source[i] << ", " << terms << std::endl;
 #endif

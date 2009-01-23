@@ -51,6 +51,7 @@ public:
 private:
 	std::string *clienthost;
 	bool matchedip;
+	std::string urlparams;
 
 	// write a log entry containing the given data (if required)
 	void doLog(std::string &who, std::string &from, String &where, unsigned int &port,

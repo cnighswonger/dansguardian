@@ -383,6 +383,9 @@ void ConnectionHandler::handleConnection(Socket &peerconn, String &ip)
 	delete clienthost;
 	clienthost = NULL;  // and the hostname, if available
 	matchedip = false;
+	
+	// clear list of parameters extracted from URL
+	urlparams.clear();
 
 #ifdef DGDEBUG			// debug stuff surprisingly enough
 	std::cout << "got connection" << std::endl;
@@ -1650,6 +1653,9 @@ void ConnectionHandler::doLog(std::string &who, std::string &from, String &where
 		data += (clienthost ? (*clienthost) + cr : cr);
 		if (o.log_user_agent)
 			data += (reqheader ? reqheader->userAgent() + cr : cr);
+		else
+			data += cr;
+		data += urlparams + cr;
 
 #ifdef DGDEBUG   
 		std::cout << "...built" << std::endl;
@@ -1726,6 +1732,8 @@ void ConnectionHandler::requestChecks(HTTPHeader *header, NaughtyFilter *checkme
 		String terms;
 		bool extracted = o.fg[filtergroup]->extractSearchTerms(*url, terms);
 		if (extracted) {
+			// search terms are URL parameter type "0"
+			urlparams.append("0=").append(terms).append(";");
 			checkme->checkme(terms.c_str(), terms.length(), NULL, NULL, filtergroup,
 				(o.fg[filtergroup]->searchterm_flag ? o.fg[filtergroup]->searchterm_list : o.fg[filtergroup]->banned_phrase_list),
 				o.fg[filtergroup]->searchterm_limit, true);
