@@ -673,7 +673,7 @@ bool FOptionContainer::read(const char *filename)
 				std::cout << "Enabled search term extraction RegExp list" << std::endl;
 #endif
 				searchterm_limit = findoptionI("searchtermlimit");
-				if (!realitycheck(searchterm_limit, 1, 0, "searchtermlimit")) {
+				if (!realitycheck(searchterm_limit, 0, 0, "searchtermlimit")) {
 					return false;
 				}
 

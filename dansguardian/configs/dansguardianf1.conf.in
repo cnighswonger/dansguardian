@@ -114,6 +114,9 @@ naughtynesslimit = 50
 # 'naughtynesslimit' value above, because the amount of text being filtered
 # is only a few words, rather than a whole page.
 # This option must be uncommented if searchengineregexplist is uncommented.
+# A value of 0 here indicates that search terms should be extracted,
+# for logging/reporting purposes, but no filtering should be performed
+# on the resulting text.
 #searchtermlimit = 30
 #
 # Search term lists

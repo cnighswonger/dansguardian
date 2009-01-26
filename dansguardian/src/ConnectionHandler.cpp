@@ -1735,11 +1735,13 @@ void ConnectionHandler::requestChecks(HTTPHeader *header, NaughtyFilter *checkme
 		if (extracted) {
 			// search terms are URL parameter type "0"
 			urlparams.append("0=").append(terms).append(";");
-			checkme->checkme(terms.c_str(), terms.length(), NULL, NULL, filtergroup,
-				(o.fg[filtergroup]->searchterm_flag ? o.fg[filtergroup]->searchterm_list : o.fg[filtergroup]->banned_phrase_list),
-				o.fg[filtergroup]->searchterm_limit, true);
-			if (checkme->isItNaughty)
-				return;
+			if (o.fg[filtergroup]->searchterm_limit > 0) {
+				checkme->checkme(terms.c_str(), terms.length(), NULL, NULL, filtergroup,
+					(o.fg[filtergroup]->searchterm_flag ? o.fg[filtergroup]->searchterm_list : o.fg[filtergroup]->banned_phrase_list),
+					o.fg[filtergroup]->searchterm_limit, true);
+				if (checkme->isItNaughty)
+					return;
+			}
 		}
 	}
 
