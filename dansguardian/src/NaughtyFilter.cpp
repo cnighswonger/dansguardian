@@ -326,7 +326,7 @@ void NaughtyFilter::checkme(const char *rawbody, off_t rawbodylen, const String 
 				std::cout << bodymeta << std::endl;
 #endif
 				bodymetalen = j;
-				checkphrase(bodymeta, bodymetalen, NULL, NULL, filtergroup, phraselist, limit);
+				checkphrase(bodymeta, bodymetalen, NULL, NULL, filtergroup, phraselist, limit, searchterms);
 			}
 #ifdef DGDEBUG
 			else
@@ -347,7 +347,7 @@ void NaughtyFilter::checkme(const char *rawbody, off_t rawbodylen, const String 
 			std::cout << "Checking raw content" << std::endl;
 #endif
 			// check unstripped content
-			checkphrase(bodylc, hexdecodedlen, url, domain, filtergroup, phraselist, limit);
+			checkphrase(bodylc, hexdecodedlen, url, domain, filtergroup, phraselist, limit, searchterms);
 			if (isItNaughty || isException) {
 				delete[]bodylc;
 				delete[] bodynohtml;
@@ -400,7 +400,7 @@ void NaughtyFilter::checkme(const char *rawbody, off_t rawbodylen, const String 
 #ifdef DGDEBUG
 		std::cout << "Checking smart content" << std::endl;
 #endif
-		checkphrase(bodynohtml, j - 1, NULL, NULL, filtergroup, phraselist, limit);
+		checkphrase(bodynohtml, j - 1, NULL, NULL, filtergroup, phraselist, limit, searchterms);
 
 		// second time round the case loop (if there is a second time),
 		// do preserve case (exotic encodings)
@@ -414,7 +414,7 @@ void NaughtyFilter::checkme(const char *rawbody, off_t rawbodylen, const String 
 
 // check the phrase lists
 void NaughtyFilter::checkphrase(char *file, off_t filelen, const String *url, const String *domain,
-	unsigned int filtergroup, unsigned int phraselist, int limit)
+	unsigned int filtergroup, unsigned int phraselist, int limit, bool searchterms)
 {
 	int weighting = 0;
 	int cat;
@@ -807,29 +807,34 @@ void NaughtyFilter::checkphrase(char *file, off_t filelen, const String *url, co
 
 	if (bannedcombi) {
 		isItNaughty = true;
-		whatIsNaughtyLog = o.language_list.getTranslation(400);
 		// Banned combination phrase found:
+		// Banned combination search term found:
+		whatIsNaughtyLog = o.language_list.getTranslation(searchterms ? 452: 400);
 		whatIsNaughtyLog += combifound;
-		whatIsNaughty = o.language_list.getTranslation(401);
 		// Banned combination phrase found.
+		// Banned combination search term found.
+		whatIsNaughty = o.language_list.getTranslation(searchterms ? 453 : 401);
 		whatIsNaughtyCategories = bannedcategory.toCharArray();
 		return;
 	}
 
 	if (isItNaughty) {
-		whatIsNaughtyLog = o.language_list.getTranslation(300);
-		// Banned Phrase found:
+		// Banned phrase found:
+		// Banned search term found:
+		whatIsNaughtyLog = o.language_list.getTranslation(searchterms ? 450 : 300);
 		whatIsNaughtyLog += bannedphrase;
-		whatIsNaughty = o.language_list.getTranslation(301);
 		// Banned phrase found.
+		// Banned search term found.
+		whatIsNaughty = o.language_list.getTranslation(searchterms ? 451 : 301);
 		whatIsNaughtyCategories = bannedcategory.toCharArray();
 		return;
 	}
 
 	if (weighting > limit) {
 		isItNaughty = true;
-		whatIsNaughtyLog = o.language_list.getTranslation(402);
 		// Weighted phrase limit of
+		// Weighted search term limit of
+		whatIsNaughtyLog = o.language_list.getTranslation(searchterms ? 454 : 402);
 		whatIsNaughtyLog += String(limit).toCharArray();
 		whatIsNaughtyLog += " : ";
 		whatIsNaughtyLog += String(weighting).toCharArray();
@@ -838,8 +843,9 @@ void NaughtyFilter::checkphrase(char *file, off_t filelen, const String *url, co
 			whatIsNaughtyLog += weightedphrase;
 			whatIsNaughtyLog += ")";
 		}
-		whatIsNaughty = o.language_list.getTranslation(403);
 		// Weighted phrase limit exceeded.
+		// Weighted search term limit exceeded.
+		whatIsNaughty = o.language_list.getTranslation(searchterms ? 455 : 403);
 		// Generate category list, sorted with highest scoring first.
 		bool nonempty = false;
 		bool belowthreshold = false;

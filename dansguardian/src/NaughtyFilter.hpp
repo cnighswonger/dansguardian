@@ -63,7 +63,7 @@ private:
 	// trying to look for links etc. in "smart" filtering mode, i.e.
 	// after HTML has been removed, and in search terms.)
 	void checkphrase(char *file, off_t filelen, const String *url, const String *domain,
-		unsigned int filtergroup, unsigned int phraselist, int limit);
+		unsigned int filtergroup, unsigned int phraselist, int limit, bool searchterms);
 	
 	// check PICS ratings
 	void checkPICS(const char *file, unsigned int filtergroup);
