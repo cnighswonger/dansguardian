@@ -628,8 +628,9 @@ void NaughtyFilter::checkphrase(char *file, off_t filelen, const String *url, co
 				else if (type == -1) {	// combination exception
 					isItNaughty = false;
 					isException = true;
-					whatIsNaughtyLog = o.language_list.getTranslation(605);
 					// Combination exception phrase found:
+					// Combination exception search term found:
+					whatIsNaughtyLog = o.language_list.getTranslation(searchterms ? 456 : 605);
 					whatIsNaughtyLog += combisofar;
 					whatIsNaughty = "";
 					++combicurrent;
@@ -780,8 +781,9 @@ void NaughtyFilter::checkphrase(char *file, off_t filelen, const String *url, co
 		else if (type == -1) {
 			isException = true;
 			isItNaughty = false;
-			whatIsNaughtyLog = o.language_list.getTranslation(604);
 			// Exception phrase found:
+			// Exception search term found:
+			whatIsNaughtyLog = o.language_list.getTranslation(searchterms ? 457 : 604);
 			whatIsNaughtyLog += foundcurrent->first;
 			whatIsNaughty = "";
 			whatIsNaughtyCategories = o.lm.l[phraselist]->getListCategoryAt(foundcurrent->second.first, NULL);

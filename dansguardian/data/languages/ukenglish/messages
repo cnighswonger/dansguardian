@@ -22,6 +22,8 @@
 "453","Banned combination search term found."
 "454","Weighted search term limit of "
 "455","Weighted search term limit exceeded."
+"456","Exception combination search term found: "
+"457","Exception search term found: "
 
 "500","Banned site: "
 "501","Banned URL: "
