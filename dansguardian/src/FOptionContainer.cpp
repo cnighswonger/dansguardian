@@ -680,21 +680,24 @@ bool FOptionContainer::read(const char *filename)
 				// Optionally override the normal phrase lists for search term blocking.
 				// We need all three lists to build a phrase tree, so fail if we encounter
 				// anything other than all three enabled/disabled simultaneously.
-				std::string exception_searchterm_list_location(findoptionS("exceptionsearchtermlist"));
-				std::string weighted_searchterm_list_location(findoptionS("weightedsearchtermlist"));
-				std::string banned_searchterm_list_location(findoptionS("bannedsearchtermlist"));
-				if (!(exception_searchterm_list_location.length() == 0 &&
-					weighted_searchterm_list_location.length() == 0 &&
-					banned_searchterm_list_location.length() == 0))
+				if (searchterm_limit > 0)
 				{
-					// At least one is enabled - try to load all three.
-					if (!readbplfile(banned_searchterm_list_location.c_str(),
-						exception_searchterm_list_location.c_str(),
-						weighted_searchterm_list_location.c_str(), searchterm_list))
+					std::string exception_searchterm_list_location(findoptionS("exceptionsearchtermlist"));
+					std::string weighted_searchterm_list_location(findoptionS("weightedsearchtermlist"));
+					std::string banned_searchterm_list_location(findoptionS("bannedsearchtermlist"));
+					if (!(exception_searchterm_list_location.length() == 0 &&
+						weighted_searchterm_list_location.length() == 0 &&
+						banned_searchterm_list_location.length() == 0))
 					{
-						return false;
+						// At least one is enabled - try to load all three.
+						if (!readbplfile(banned_searchterm_list_location.c_str(),
+							exception_searchterm_list_location.c_str(),
+							weighted_searchterm_list_location.c_str(), searchterm_list))
+						{
+							return false;
+						}
+						searchterm_flag = true;
 					}
-					searchterm_flag = true;
 				}
 			}
 
