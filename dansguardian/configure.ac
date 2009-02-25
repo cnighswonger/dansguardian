@@ -3,7 +3,7 @@
 # 2004,2005 - Daniel Barron
 
 AC_PREREQ(2.57)
-AC_INIT(dansguardian, 2.10.0.3)
+AC_INIT(dansguardian, 2.10.1.0)
 AM_INIT_AUTOMAKE
 AC_CONFIG_HEADERS([dgconfig.h])
 
@@ -268,6 +268,30 @@ fi
 	LIBS="${LIBS} $lfslib"
 	AC_MSG_RESULT(yes)
 ])
+
+# ask the user if they want support for retrieving original destination IPs
+# when acting as a transparent proxy
+AC_MSG_CHECKING([for original destination IP checking support])
+AC_ARG_ENABLE(
+orig-ip,
+[AC_HELP_STRING([--enable-orig-ip@<:@=no@:>@], [Enable support for checking the client's original destination IP address against HTTP request details when deployed as a transparent proxy (US-CERT VU@%:@435052).  Currently only works on Linux.])],
+[ if test "x$enableval" = "xno"; then
+	AC_MSG_RESULT(no)
+	origip=false
+	ORIGIPSUPPORT="#!! Not compiled !! "
+else
+	AC_MSG_RESULT(yes)
+	origip=true
+	AC_DEFINE([ENABLE_ORIG_IP],[],[Define to enable original destination IP checking])
+	ORIGIPSUPPORT=""
+fi
+],
+[ # disable by default
+	AC_MSG_RESULT(no)
+	origip=false
+	ORIGIPSUPPORT="#!! Not compiled !! "
+])
+AC_SUBST(ORIGIPSUPPORT)
 
 # determine whether or not "off_t" is simply a typedef of
 # "int", "unsigned int", "long", etc. - if it is, the String
