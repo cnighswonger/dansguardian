@@ -27,6 +27,7 @@
 #include "RegExp.hpp"
 #include "ListContainer.hpp"
 
+#include <cstring>
 #include <syslog.h>
 #include <algorithm>
 
@@ -116,6 +117,7 @@ void NaughtyFilter::checkme(DataBuffer *body, String &url, String &domain)
 		std::cout << "Hex decoding is enabled" << std::endl;
 #endif
 		hexdecoded = new char[rawbodylen + 128 + 1];
+		memset(hexdecoded, 0, rawbodylen + 128 + 1);
 		unsigned char c1;
 		unsigned char c2;
 		unsigned char c3;
@@ -167,12 +169,16 @@ void NaughtyFilter::checkme(DataBuffer *body, String &url, String &domain)
 	// Store for the lowercase (maybe) data
 	// The extra 128 is used for various speed tricks to
 	// squeeze as much speed as possible.
-	char* bodylc = new char[hexdecodedlen + 128];
+	char* bodylc = new char[hexdecodedlen + 128 + 1];
+	memset(bodylc, 0, hexdecodedlen + 128 + 1);
 	
 	// Store for the tag-stripped data
 	char* bodynohtml = NULL;
 	if (o.phrase_filter_mode == 1 || o.phrase_filter_mode == 2)
+	{
 		bodynohtml = new char[hexdecodedlen + 128 + 1];
+		memset(bodynohtml, 0, hexdecodedlen + 128 + 1);
+	}
 	
 	for (int loop = 0; loop < (o.preserve_case == 2 ? 2 : 1); loop++) {
 #ifdef DGDEBUG
@@ -258,6 +264,7 @@ void NaughtyFilter::checkme(DataBuffer *body, String &url, String &domain)
 				endhead = bodylc+hexdecodedlen;
 
 			char* bodymeta = new char[(endhead - bodylc) + 128 + 1];
+			memset(bodymeta, 0, (endhead - bodylc) + 128 + 1);
 
 			// initialisation for removal of duplicate non-alphanumeric characters
 			j = 1;

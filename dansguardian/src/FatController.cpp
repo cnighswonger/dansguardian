@@ -71,7 +71,6 @@ extern bool is_daemonised;
 
 int numchildren;  // to keep count of our children
 int busychildren;  // to keep count of our children
-int freechildren;  // to keep count of our children
 int waitingfor;  // num procs waiting for to be preforked
 int *childrenpids;  // so when one exits we know who
 int *childrenstates;  // so we know what they're up to
@@ -714,14 +713,11 @@ void deletechild(int child_pid)
 		if (childrenpids[i] == child_pid) {
 			childrenpids[i] = -1;
 			// Delete a busy child
-			if (childrenstates[i] == 1) {
+			if (childrenstates[i] > 1)
 				busychildren--;
-			}
 			// Delete a child which isn't "ready" yet
-			if (childrenstates[i] == 4) {
-				busychildren--;
+			if (childrenstates[i] == 4)
 				waitingfor--;
-			}
 			// Common code for any non-"culled" child
 			if (childrenstates[i] != -2) {
 				numchildren--;
@@ -2013,7 +2009,7 @@ int fc_controlit()
 
 	numchildren = 0;  // to keep count of our children
 	busychildren = 0;  // to keep count of our children
-	freechildren = 0;  // to keep count of our children
+	int freechildren = 0;  // to keep count of our children
 
 	childrenpids = new int[o.max_children];  // so when one exits we know who
 	childrenstates = new int[o.max_children];  // so we know what they're up to
@@ -2156,6 +2152,7 @@ int fc_controlit()
 
 		if (tofind > 0) {
 			check_kid_readystatus(tofind);
+			mopup_afterkids();
 		}
 
 		freechildren = numchildren - busychildren;
@@ -2192,7 +2189,24 @@ int fc_controlit()
 #ifdef DGDEBUG
 						std::cout<<"telling child to accept "<<(i-o.max_children)<<std::endl;
 #endif
-						tellchild_accept(getfreechild(), i - o.max_children);
+						int childnum = getfreechild();
+						if (childnum < 0)
+						{
+							// Oops! weren't actually any free children.
+							// Not sure why as yet, but it seems this can
+							// sometimes happen. :(  PRA 2009-03-11
+							syslog(LOG_WARNING,
+								"No free children from getfreechild(): numchildren = %d, busychildren = %d, waitingfor = %d",
+								numchildren, busychildren, waitingfor
+							);
+							freechildren = 0;
+							usleep(1000);
+						}
+						else
+						{
+							tellchild_accept(childnum, i - o.max_children);
+							--freechildren;
+						}
 					} else {
 						usleep(1000);
 					}
