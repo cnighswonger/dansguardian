@@ -903,6 +903,13 @@ void HTTPHeader::checkheader(bool allowpersistent)
 		waspersistent = true;
 	}
 
+	// Even though persistent CONNECT requests usually break things, waspersistent should
+	// reflect the intention of the original request headers, or NTLM breaks.
+	if (outgoing && isconnect && !connectionclose)
+	{
+		waspersistent = true;
+	}
+
 #ifdef DGDEBUG
 	std::cout << "CheckHeader flags after normalisation: AP=" << allowpersistent << " WP=" << waspersistent << std::endl;
 #endif
