@@ -111,7 +111,7 @@ bool FDTunnel::tunnel(Socket &sockfrom, Socket &sockto, bool twoway, off_t targe
 		inset.insert(fdfrom);
 		t = timeout;
 
-		if (ignore && !twoway) inset.insert(fdto);
+		if (!ignore || twoway) inset.insert(fdto);
 
 		if (selectEINTR(&inset, NULL, NULL, &t) < 1) {
 			break;  // an error occured or it timed out so end while()
