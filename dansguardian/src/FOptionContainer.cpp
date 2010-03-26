@@ -947,13 +947,15 @@ char *FOptionContainer::testBlanketBlock(unsigned int list, bool ip, bool ssl) {
 // checkme: there's an awful lot of removing whitespace, PTP, etc. going on here.
 // perhaps connectionhandler could keep a suitably modified version handy to prevent repitition of work?
 
-char *FOptionContainer::inSiteList(String &url, unsigned int list, String *rcat, bool doblanket, bool ip, bool ssl)
+char *FOptionContainer::inSiteList(String &url, unsigned int list, String *rcat, bool doblanket, bool ip, bool ssl, bool exception)
 {
 	// Perform blanket matching if desired
 	if (doblanket) {
 		char *r = testBlanketBlock(list, ip, ssl);
 		if (r) {
-			if (rcat)
+			// The messages returned by testBlanketBlock mention blanket blocks specifically, not blanket exceptions
+			// Return non-NULL here, because that is used to signify a match, but don't set the exception category string
+			if (rcat && !exception)
 				(*rcat) = r;
 			return r;
 		}
@@ -1013,7 +1015,7 @@ bool FOptionContainer::inGreySiteList(String url, String *rcat, bool doblanket, 
 
 bool FOptionContainer::inExceptionSiteList(String url, String *rcat, bool doblanket, bool ip, bool ssl)
 {
-	return inSiteList(url, exception_site_list, rcat, doblanket, ip, ssl) != NULL;
+	return inSiteList(url, exception_site_list, rcat, doblanket, ip, ssl, true) != NULL;
 }
 
 bool FOptionContainer::inExceptionFileSiteList(String url, String *rcat)
@@ -1025,12 +1027,14 @@ bool FOptionContainer::inExceptionFileSiteList(String url, String *rcat)
 }
 
 // look in given URL list for given URL
-char *FOptionContainer::inURLList(String &url, unsigned int list, String *rcat, bool doblanket, bool ip, bool ssl) {
+char *FOptionContainer::inURLList(String &url, unsigned int list, String *rcat, bool doblanket, bool ip, bool ssl, bool exception) {
 	// Perform blanket matching if desired
 	if (doblanket) {
 		char *r = testBlanketBlock(list, ip, ssl);
 		if (r) {
-			if (rcat)
+			// The messages returned by testBlanketBlock mention blanket blocks specifically, not blanket exceptions
+			// Return non-NULL here, because that is used to signify a match, but don't set the exception category string
+			if (rcat && !exception)
 				(*rcat) = r;
 			return r;
 		}
@@ -1133,7 +1137,7 @@ bool FOptionContainer::inExceptionURLList(String url, String* rcat, bool doblank
 #ifdef DGDEBUG
 	std::cout<<"inExceptionURLList"<<std::endl;
 #endif
-	return inURLList(url, exception_url_list, rcat, doblanket, ip, ssl) != NULL;
+	return inURLList(url, exception_url_list, rcat, doblanket, ip, ssl, true) != NULL;
 }
 
 // New log-only site lists

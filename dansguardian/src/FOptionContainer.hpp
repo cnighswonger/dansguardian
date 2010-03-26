@@ -306,8 +306,8 @@ private:
 	bool realitycheck(int l, int minl, int maxl, const char *emessage);
 	int inRegExpURLList(String &url, std::deque<RegExp> &list_comp, std::deque<unsigned int> &list_ref, unsigned int list, String *rcat);
 
-	char *inURLList(String &url, unsigned int list, String *rcat, bool doblanket = false, bool ip = false, bool ssl = false);
-	char *inSiteList(String &url, unsigned int list, String *rcat, bool doblanket = false, bool ip = false, bool ssl = false);
+	char *inURLList(String &url, unsigned int list, String *rcat, bool doblanket = false, bool ip = false, bool ssl = false, bool exception = false);
+	char *inSiteList(String &url, unsigned int list, String *rcat, bool doblanket = false, bool ip = false, bool ssl = false, bool exception = false);
 
 	char *testBlanketBlock(unsigned int list, bool ip, bool ssl);
 };
