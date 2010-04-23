@@ -1512,7 +1512,7 @@ void ConnectionHandler::doLog(std::string &who, std::string &from, String &where
 #endif
 			}
 			if (c) {
-				cat->assign(newcat.c_str());
+				cat = (std::string*) &newcat;
 			}
 		}
 #ifdef DGDEBUG
